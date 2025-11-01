@@ -1,100 +1,121 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { audioBufferToWav } from "@/utils/audioBufferToWav"
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Slider } from "@/components/ui/slider"
-import { Upload, Play, Pause, RotateCcw, Download, Repeat, Moon, Sun } from "lucide-react"
-import { useTheme } from "next-themes"
-import WaveformVisualizer from "./waveform-visualizer"
-import EffectsPanel from "./effects-panel"
-import Link from "next/link"
+import type React from "react";
+import { audioBufferToWav } from "@/utils/audioBufferToWav";
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import {
+  Upload,
+  Play,
+  Pause,
+  RotateCcw,
+  Download,
+  Repeat,
+  Moon,
+  Sun,
+} from "lucide-react";
+import { useTheme } from "next-themes";
+import WaveformVisualizer from "./waveform-visualizer";
+import EffectsPanel from "./effects-panel";
+import FeedbackDialog from "./feedback-dialog";
+import Link from "next/link";
 
 export default function AudioManipulator() {
-  const [audioFile, setAudioFile] = useState<File | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
-  const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(null) // NEW: For reversed audio
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [isRendering, setIsRendering] = useState(false)
-  const [isLooping, setIsLooping] = useState(false)
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+  const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(
+    null
+  ); // NEW: For reversed audio
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isRendering, setIsRendering] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
 
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null)
-  const startTimeRef = useRef<number>(0)
-  const pauseTimeRef = useRef<number>(0)
-  const playbackRateRef = useRef<number>(1)
-  const animationFrameRef = useRef<number | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const gainNodeRef = useRef<GainNode | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const pauseTimeRef = useRef<number>(0);
+  const playbackRateRef = useRef<number>(1);
+  const animationFrameRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const isLoopingRef = useRef(false);
+  const isManuallyStoppingRef = useRef(false);
 
   const [effects, setEffects] = useState({
     volume: 0.8,
     pitch: 1,
     reverse: false,
-  })
+  });
 
-  const isLoopingRef = useRef(false)
-  const isManuallyStoppingRef = useRef(false)
-
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true)
-  }, [])
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
-    audioContextRef.current = new AudioContext()
-    const ctx = audioContextRef.current
+    audioContextRef.current = new AudioContext();
+    const ctx = audioContextRef.current;
 
-    gainNodeRef.current = ctx.createGain()
-    gainNodeRef.current.gain.value = effects.volume
-    gainNodeRef.current.connect(ctx.destination)
+    gainNodeRef.current = ctx.createGain();
+    gainNodeRef.current.gain.value = effects.volume;
+    gainNodeRef.current.connect(ctx.destination);
 
     return () => {
       if (audioContextRef.current) {
-        audioContextRef.current.close()
+        audioContextRef.current.close();
       }
-    }
-  }, [])
+    };
+  }, []);
 
   useEffect(() => {
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.setTargetAtTime(effects.volume, audioContextRef.current!.currentTime, 0.01)
+      gainNodeRef.current.gain.setTargetAtTime(
+        effects.volume,
+        audioContextRef.current!.currentTime,
+        0.01
+      );
     }
-  }, [effects.volume])
+  }, [effects.volume]);
 
   useEffect(() => {
     if (isPlaying && sourceNodeRef.current) {
-      console.log("[v0] Buffer-modifying effect changed, restarting playback")
-      pauseAudio()
-      playAudio()
+      console.log("[v0] Buffer-modifying effect changed, restarting playback");
+      pauseAudio();
+      playAudio();
     }
-  }, [effects.pitch])
+  }, [effects.pitch]);
 
   // NEW: Process buffer when reverse changes
   useEffect(() => {
     if (!audioBuffer) return;
-    
+
     console.log("[v0] Processing buffer, reverse:", effects.reverse);
-    
+
     if (effects.reverse) {
       const reversed = reverseAudioBuffer(audioBuffer);
       setProcessedBuffer(reversed);
     } else {
       setProcessedBuffer(audioBuffer);
     }
-    
-    // Restart playback if currently playing
-    if (isPlaying) {
-      console.log("[v0] Reverse changed during playback, restarting");
+
+    if (audioFile && isPlaying) {
+      const currentPos = pauseTimeRef.current;
       pauseAudio();
-      // Use setTimeout to ensure clean restart
-      setTimeout(() => playAudio(), 50);
+      setTimeout(() => {
+        pauseTimeRef.current = currentPos;
+        setCurrentTime(currentPos);
+        playAudio();
+      }, 50);
+    } else if (audioFile && !isPlaying) {
+      // If not playing, just update the buffer without auto-playing
+      const currentPos = pauseTimeRef.current;
+      pauseTimeRef.current = currentPos;
+      setCurrentTime(currentPos);
     }
   }, [effects.reverse, audioBuffer]);
 
@@ -109,7 +130,7 @@ export default function AudioManipulator() {
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
       const channelData = buffer.getChannelData(channel);
       const reversedData = reversedBuffer.getChannelData(channel);
-      
+
       for (let i = 0; i < channelData.length; i++) {
         reversedData[i] = channelData[channelData.length - 1 - i];
       }
@@ -119,216 +140,229 @@ export default function AudioManipulator() {
   };
 
   useEffect(() => {
-    isLoopingRef.current = isLooping
-  }, [isLooping])
+    isLoopingRef.current = isLooping;
+  }, [isLooping]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("[v0] File upload triggered")
-    const file = e.target.files?.[0]
+    console.log("[v0] File upload triggered");
+    const file = e.target.files?.[0];
 
     if (!file) {
-      console.log("[v0] No file selected")
-      return
+      console.log("[v0] No file selected");
+      return;
     }
 
     if (isPlaying) {
-      pauseAudio()
+      pauseAudio();
     }
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
-    console.log("[v0] File selected:", file.name, file.type, file.size)
-    setAudioFile(file)
+    console.log("[v0] File selected:", file.name, file.type, file.size);
+    setAudioFile(file);
 
     try {
-      console.log("[v0] Reading file as array buffer...")
-      const arrayBuffer = await file.arrayBuffer()
-      console.log("[v0] Array buffer created, size:", arrayBuffer.byteLength)
+      const arrayBuffer = await file.arrayBuffer();
 
-      console.log("[v0] Decoding audio data...")
-      const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer)
-      console.log("[v0] Audio decoded successfully, duration:", buffer.duration)
+      const buffer = await audioContextRef.current!.decodeAudioData(
+        arrayBuffer
+      );
 
-      setAudioBuffer(buffer)
-      setProcessedBuffer(buffer) // Initialize processed buffer
-      setDuration(buffer.duration)
-      setCurrentTime(0)
-      pauseTimeRef.current = 0
-      setIsPlaying(false)
+      setAudioBuffer(buffer);
+      // setProcessedBuffer(buffer); // Initialize processed buffer
+      setDuration(buffer.duration);
+      setCurrentTime(0);
+      pauseTimeRef.current = 0;
+      setIsPlaying(false);
 
-      console.log("[v0] Audio file loaded successfully")
+      console.log("[v0] Audio file loaded successfully");
     } catch (error) {
-      console.error("[v0] Error loading audio file:", error)
-      alert(`Error loading audio file: ${error}`)
+      console.error("[v0] Error loading audio file:", error);
+      alert(`Error loading audio file: ${error}`);
     }
-  }
+  };
 
   const playAudio = () => {
-    if (!processedBuffer || !audioContextRef.current) return
+    if (!processedBuffer || !audioContextRef.current) return;
 
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
 
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
+      cancelAnimationFrame(animationFrameRef.current);
     }
 
-    const offset = pauseTimeRef.current
-    sourceNodeRef.current = audioContextRef.current.createBufferSource()
-    sourceNodeRef.current.buffer = processedBuffer // CHANGED: Use processed buffer
-    sourceNodeRef.current.playbackRate.value = effects.pitch
+    let offset;
+    if (effects.reverse) {
+      // When reversed, we need to play from the "mirrored" position
+      offset = duration - pauseTimeRef.current;
+    } else {
+      offset = pauseTimeRef.current;
+    }
+    sourceNodeRef.current = audioContextRef.current.createBufferSource();
+    sourceNodeRef.current.buffer = processedBuffer; // CHANGED: Use processed buffer
+    sourceNodeRef.current.playbackRate.value = effects.pitch;
+    sourceNodeRef.current.connect(gainNodeRef.current!);
+    sourceNodeRef.current.start(0, offset);
 
-    sourceNodeRef.current.connect(gainNodeRef.current!)
-
-    sourceNodeRef.current.start(0, offset)
-    startTimeRef.current = audioContextRef.current.currentTime - offset / effects.pitch
-    playbackRateRef.current = effects.pitch
-    setIsPlaying(true)
+    startTimeRef.current =
+      audioContextRef.current.currentTime - offset / effects.pitch;
+    playbackRateRef.current = effects.pitch;
+    setIsPlaying(true);
 
     const updateTime = () => {
       if (audioContextRef.current && sourceNodeRef.current) {
-        const contextElapsed = audioContextRef.current.currentTime - startTimeRef.current
-        const bufferElapsed = contextElapsed * playbackRateRef.current
+        const contextElapsed =
+          audioContextRef.current.currentTime - startTimeRef.current;
+        const bufferElapsed = contextElapsed * playbackRateRef.current;
 
-        setCurrentTime(bufferElapsed)
+        if (effects.reverse) {
+          // When reversed, count DOWN from current position
+          const visualTime = pauseTimeRef.current - (bufferElapsed - offset);
+          setCurrentTime(Math.max(0, visualTime));
+        } else {
+          // Normal playback
+          setCurrentTime(bufferElapsed);
+        }
 
         if (bufferElapsed >= duration) {
           if (isManuallyStoppingRef.current) {
-            return
+            return;
           }
           if (isLoopingRef.current) {
-            pauseTimeRef.current = 0
-            playAudio()
-            return
+            pauseTimeRef.current = effects.reverse ? duration : 0;
+            playAudio();
+            return;
           } else {
-            setIsPlaying(false)
-            setCurrentTime(0)
-            pauseTimeRef.current = 0
-            animationFrameRef.current = null
-            return
+            setIsPlaying(false);
+            setCurrentTime(effects.reverse ? 0 : duration);
+            pauseTimeRef.current = effects.reverse ? 0 : duration;
+            animationFrameRef.current = null;
+            return;
           }
         }
 
-        animationFrameRef.current = requestAnimationFrame(updateTime)
+        animationFrameRef.current = requestAnimationFrame(updateTime);
       }
-    }
-    animationFrameRef.current = requestAnimationFrame(updateTime)
-  }
+    };
+    animationFrameRef.current = requestAnimationFrame(updateTime);
+  };
 
   const pauseAudio = () => {
     if (sourceNodeRef.current && audioContextRef.current) {
-      isManuallyStoppingRef.current = true
-      isLoopingRef.current = false
-      setIsLooping(false)
+      isManuallyStoppingRef.current = true;
+      isLoopingRef.current = false;
+      setIsLooping(false);
 
       if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
 
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
-      const contextElapsed = audioContextRef.current.currentTime - startTimeRef.current
-      pauseTimeRef.current = contextElapsed * playbackRateRef.current
-      setIsPlaying(false)
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
+      const contextElapsed =
+        audioContextRef.current.currentTime - startTimeRef.current;
+      pauseTimeRef.current = contextElapsed * playbackRateRef.current;
+      setIsPlaying(false);
 
       setTimeout(() => {
-        isManuallyStoppingRef.current = false
-      }, 100)
+        isManuallyStoppingRef.current = false;
+      }, 100);
     }
-  }
+  };
 
   const resetAudio = () => {
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
-    setIsPlaying(false)
-    setCurrentTime(0)
-    pauseTimeRef.current = 0
-  }
+    setIsPlaying(false);
+    setCurrentTime(0);
+    pauseTimeRef.current = 0;
+  };
 
   const togglePlayPause = () => {
     if (isPlaying) {
-      pauseAudio()
+      pauseAudio();
     } else {
-      playAudio()
+      playAudio();
     }
-  }
+  };
 
   const downloadProcessedAudio = async () => {
-    if (!processedBuffer) return // CHANGED: Use processed buffer
+    if (!processedBuffer) return; // CHANGED: Use processed buffer
 
-    setIsRendering(true)
+    setIsRendering(true);
 
     try {
       const offlineCtx = new OfflineAudioContext(
         processedBuffer.numberOfChannels,
         processedBuffer.length,
-        processedBuffer.sampleRate,
-      )
+        processedBuffer.sampleRate
+      );
 
-      const source = offlineCtx.createBufferSource()
+      const source = offlineCtx.createBufferSource();
 
-      source.buffer = processedBuffer // CHANGED: Use processed buffer
-      source.playbackRate.value = effects.pitch
+      source.buffer = processedBuffer; // CHANGED: Use processed buffer
+      source.playbackRate.value = effects.pitch;
 
-      source.connect(offlineCtx.destination)
+      source.connect(offlineCtx.destination);
 
-      source.start(0)
-      const renderedBuffer = await offlineCtx.startRendering()
+      source.start(0);
+      const renderedBuffer = await offlineCtx.startRendering();
 
-      const wavBlob = audioBufferToWav(renderedBuffer)
-      const url = URL.createObjectURL(wavBlob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `fourpage-processed-${Date.now()}.wav`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const wavBlob = audioBufferToWav(renderedBuffer);
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fourpage-processed-${Date.now()}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      setIsRendering(false)
+      setIsRendering(false);
     } catch (error) {
-      console.error("Error rendering audio:", error)
-      alert("Error processing audio for download")
-      setIsRendering(false)
+      console.error("Error rendering audio:", error);
+      alert("Error processing audio for download");
+      setIsRendering(false);
     }
-  }
+  };
 
   const seekAudio = (time: number) => {
-    const wasPlaying = isPlaying
+    const wasPlaying = isPlaying;
 
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
 
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
-    pauseTimeRef.current = time
-    setCurrentTime(time)
-    setIsPlaying(false)
+    pauseTimeRef.current = time;
+    setCurrentTime(time);
+    setIsPlaying(false);
 
     if (wasPlaying) {
-      playAudio()
+      playAudio();
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -336,7 +370,10 @@ export default function AudioManipulator() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
-              FOURPAGE <span className="text-sm md:text-lg font-normal text-muted-foreground">Sixty Lens</span>
+              FOURPAGE{" "}
+              <span className="text-sm md:text-lg font-normal text-muted-foreground">
+                Sixty Lens
+              </span>
             </h1>
             <p className="font-mono text-xs md:text-sm mt-2 text-muted-foreground uppercase tracking-wider">
               Experimental Sound Manipulation
@@ -344,7 +381,11 @@ export default function AudioManipulator() {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/sign-in">
-              <Button variant="outline" size="sm" className="font-mono uppercase tracking-wider bg-transparent">
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono uppercase tracking-wider bg-transparent"
+              >
                 Sign In
               </Button>
             </Link>
@@ -353,6 +394,7 @@ export default function AudioManipulator() {
                 Sign Up
               </Button>
             </Link>
+            <FeedbackDialog />
             {mounted && (
               <Button
                 variant="outline"
@@ -360,7 +402,11 @@ export default function AudioManipulator() {
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className="font-mono bg-transparent"
               >
-                {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {theme === "dark" ? (
+                  <Sun className="w-4 h-4" />
+                ) : (
+                  <Moon className="w-4 h-4" />
+                )}
               </Button>
             )}
           </div>
@@ -372,7 +418,9 @@ export default function AudioManipulator() {
           {!audioFile ? (
             <div className="border-2 border-foreground p-12 flex flex-col items-center justify-center min-h-[300px]">
               <Upload className="w-16 h-16 mb-4" />
-              <h2 className="font-mono text-xl mb-4 uppercase tracking-wider">Load Sample</h2>
+              <h2 className="font-mono text-xl mb-4 uppercase tracking-wider">
+                Load Sample
+              </h2>
               <label className="cursor-pointer">
                 <input
                   type="file"
@@ -395,7 +443,13 @@ export default function AudioManipulator() {
             </div>
           ) : (
             <>
-              <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" ref={fileInputRef} />
+              <input
+                type="file"
+                accept="audio/*"
+                onChange={handleFileUpload}
+                className="hidden"
+                ref={fileInputRef}
+              />
 
               <div className="border-2 border-foreground">
                 {/* Status header section */}
@@ -425,6 +479,7 @@ export default function AudioManipulator() {
                     currentTime={currentTime}
                     duration={duration}
                     onSeek={seekAudio}
+                    isReversed={effects.reverse}
                   />
                 </div>
 
@@ -432,8 +487,16 @@ export default function AudioManipulator() {
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
-                      <Button onClick={togglePlayPause} size="lg" className="font-mono uppercase tracking-wider">
-                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                      <Button
+                        onClick={togglePlayPause}
+                        size="lg"
+                        className="font-mono uppercase tracking-wider"
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-5 h-5" />
+                        ) : (
+                          <Play className="w-5 h-5" />
+                        )}
                       </Button>
                       <Button
                         onClick={resetAudio}
@@ -447,7 +510,9 @@ export default function AudioManipulator() {
                         onClick={() => setIsLooping(!isLooping)}
                         variant={isLooping ? "default" : "outline"}
                         size="lg"
-                        className={`font-mono uppercase tracking-wider ${isLooping ? "" : "bg-transparent"}`}
+                        className={`font-mono uppercase tracking-wider ${
+                          isLooping ? "" : "bg-transparent"
+                        }`}
                       >
                         <Repeat className="w-5 h-5" />
                       </Button>
@@ -473,7 +538,9 @@ export default function AudioManipulator() {
                     </label>
                     <Slider
                       value={[effects.volume]}
-                      onValueChange={([value]) => setEffects({ ...effects, volume: value })}
+                      onValueChange={([value]) =>
+                        setEffects({ ...effects, volume: value })
+                      }
                       min={0}
                       max={1}
                       step={0.01}
@@ -497,11 +564,13 @@ export default function AudioManipulator() {
         </div>
       </footer>
     </div>
-  )
+  );
 }
 
 function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, "0")}:${secs
+    .toString()
+    .padStart(2, "0")}`;
 }

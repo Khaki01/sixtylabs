@@ -9,9 +9,10 @@ interface WaveformVisualizerProps {
   currentTime: number
   duration: number
   onSeek?: (time: number) => void
+  isReversed: boolean
 }
 
-export default function WaveformVisualizer({ audioBuffer, currentTime, duration, onSeek }: WaveformVisualizerProps) {
+export default function WaveformVisualizer({ audioBuffer, currentTime, duration, onSeek, isReversed }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDragging, setIsDragging] = useState(false)
 
@@ -63,7 +64,15 @@ export default function WaveformVisualizer({ audioBuffer, currentTime, duration,
     ctx.stroke()
 
     // Draw playhead
-    const playheadX = (currentTime / duration) * width
+    // const playheadX = (currentTime / duration) * width
+    let playheadX;
+    if (isReversed) {
+      // When reversed, playhead still represents current time but moves backward
+      playheadX = (currentTime / duration) * width;
+    } else {
+      // Normal: left to right
+      playheadX = (currentTime / duration) * width;
+    }
     ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue("--color-foreground") || "#262626"
     ctx.lineWidth = 2
     ctx.beginPath()

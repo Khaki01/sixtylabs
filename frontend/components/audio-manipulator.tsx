@@ -1,20 +1,31 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { audioBufferToWav } from "@/utils/audioBufferToWav"
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Slider } from "@/components/ui/slider"
-import { Upload, Play, Pause, RotateCcw, Download, Repeat, Moon, Sun, PlayIcon, ChevronDown } from "lucide-react"
-import { useTheme } from "next-themes"
-import WaveformVisualizer from "./waveform-visualizer"
-import EffectsPanel from "./effects-panel"
-import FeedbackDialog from "./feedback-dialog"
-import SamplerPads from "./sampler-pads"
-import Link from "next/link"
-import type { Clip } from "./waveform-visualizer"
-import { isAuthenticated } from "@/lib/auth"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import type React from "react";
+import { audioBufferToWav } from "@/utils/audioBufferToWav";
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import {
+  Upload,
+  Play,
+  Pause,
+  RotateCcw,
+  Download,
+  Repeat,
+  Moon,
+  Sun,
+  PlayIcon,
+  ChevronDown,
+} from "lucide-react";
+import { useTheme } from "next-themes";
+import WaveformVisualizer from "./waveform-visualizer";
+import EffectsPanel from "./effects-panel";
+import FeedbackDialog from "./feedback-dialog";
+import SamplerPads from "./sampler-pads";
+import Link from "next/link";
+import type { Clip } from "./waveform-visualizer";
+import { isAuthenticated } from "@/lib/auth";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -22,14 +33,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 
 const SAMPLE_LIBRARY = [
   { id: 1, name: "Lo-Fi Beat 01", author: "DJ Smooth", genre: "Lo-Fi Hip Hop" },
@@ -40,30 +51,32 @@ const SAMPLE_LIBRARY = [
   { id: 6, name: "Vocal Chop", author: "Voice Artist", genre: "Electronic" },
   { id: 7, name: "Guitar Riff", author: "String Theory", genre: "Rock" },
   { id: 8, name: "Synth Lead", author: "Analog Dreams", genre: "Synthwave" },
-]
+];
 
 export default function AudioManipulator() {
-  const [audioFile, setAudioFile] = useState<File | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
-  const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(null) // NEW: For reversed audio
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [isRendering, setIsRendering] = useState(false)
-  const [isLooping, setIsLooping] = useState(false)
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+  const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(
+    null
+  ); // NEW: For reversed audio
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isRendering, setIsRendering] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
-  const [clips, setClips] = useState<Clip[]>([])
+  const [clips, setClips] = useState<Clip[]>([]);
 
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null)
-  const startTimeRef = useRef<number>(0)
-  const pauseTimeRef = useRef<number>(0)
-  const playbackRateRef = useRef<number>(1)
-  const animationFrameRef = useRef<number | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const pauseTimeRef = useRef<number>(0);
+  const playbackRateRef = useRef<number>(1);
+  const animationFrameRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const gainNodeRef = useRef<GainNode | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null);
 
   const [effects, setEffects] = useState({
     volume: 0.8,
@@ -75,431 +88,438 @@ export default function AudioManipulator() {
     reverbRoomSize: 0.5,
     reverbDecay: 0.5,
     reverbMix: 0,
-  })
+  });
 
-  const isLoopingRef = useRef(false)
-  const isManuallyStoppingRef = useRef(false)
+  const isLoopingRef = useRef(false);
+  const isManuallyStoppingRef = useRef(false);
 
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-  const [isSignedIn, setIsSignedIn] = useState(false)
-  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-    setIsSignedIn(isAuthenticated())
-  }, [])
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
 
   useEffect(() => {
-    audioContextRef.current = new AudioContext()
-    const ctx = audioContextRef.current
+    setMounted(true);
+    setIsSignedIn(isAuthenticated());
+  }, []);
 
-    gainNodeRef.current = ctx.createGain()
-    gainNodeRef.current.gain.value = effects.volume
-    gainNodeRef.current.connect(ctx.destination)
+  useEffect(() => {
+    audioContextRef.current = new AudioContext();
+    const ctx = audioContextRef.current;
+
+    gainNodeRef.current = ctx.createGain();
+    gainNodeRef.current.gain.value = effects.volume;
+    gainNodeRef.current.connect(ctx.destination);
 
     return () => {
       if (audioContextRef.current) {
-        audioContextRef.current.close()
+        audioContextRef.current.close();
       }
-    }
-  }, [])
+    };
+  }, []);
 
   useEffect(() => {
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.setTargetAtTime(effects.volume, audioContextRef.current!.currentTime, 0.01)
+      gainNodeRef.current.gain.setTargetAtTime(
+        effects.volume,
+        audioContextRef.current!.currentTime,
+        0.01
+      );
     }
-  }, [effects.volume])
+  }, [effects.volume]);
 
   useEffect(() => {
     if (isPlaying && sourceNodeRef.current) {
-      console.log("[v0] Buffer-modifying effect changed, restarting playback")
-      pauseAudio()
-      playAudio()
+      pauseAudio();
+      playAudio();
     }
-  }, [effects.pitch])
+  }, [effects.pitch]);
 
   // NEW: Process buffer when reverse changes
   useEffect(() => {
-    if (!audioBuffer) return
-
-    console.log("[v0] Processing buffer, reverse:", effects.reverse)
+    if (!audioBuffer) return;
 
     if (effects.reverse) {
-      const reversed = reverseAudioBuffer(audioBuffer)
-      setProcessedBuffer(reversed)
+      const reversed = reverseAudioBuffer(audioBuffer);
+      setProcessedBuffer(reversed);
     } else {
-      setProcessedBuffer(audioBuffer)
+      setProcessedBuffer(audioBuffer);
     }
 
     // Restart playback if currently playing
     if (isPlaying) {
-      console.log("[v0] Reverse changed during playback, restarting")
-      pauseAudio()
+      pauseAudio();
       // Use setTimeout to ensure clean restart
-      setTimeout(() => playAudio(), 50)
+      setTimeout(() => playAudio(), 50);
     }
-  }, [effects.reverse, audioBuffer])
+  }, [effects.reverse, audioBuffer]);
 
   // NEW: Function to reverse audio buffer
   const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
     const reversedBuffer = audioContextRef.current!.createBuffer(
       buffer.numberOfChannels,
       buffer.length,
-      buffer.sampleRate,
-    )
+      buffer.sampleRate
+    );
 
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel)
-      const reversedData = reversedBuffer.getChannelData(channel)
+      const channelData = buffer.getChannelData(channel);
+      const reversedData = reversedBuffer.getChannelData(channel);
 
       for (let i = 0; i < channelData.length; i++) {
-        reversedData[i] = channelData[channelData.length - 1 - i]
+        reversedData[i] = channelData[channelData.length - 1 - i];
       }
     }
 
-    return reversedBuffer
-  }
+    return reversedBuffer;
+  };
 
   useEffect(() => {
-    isLoopingRef.current = isLooping
-  }, [isLooping])
+    isLoopingRef.current = isLooping;
+  }, [isLooping]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("[v0] File upload triggered")
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
 
     if (!file) {
-      console.log("[v0] No file selected")
-      return
+      console.log("[v0] No file selected");
+      return;
     }
 
     if (isPlaying) {
-      pauseAudio()
+      pauseAudio();
     }
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
-    console.log("[v0] File selected:", file.name, file.type, file.size)
-    setAudioFile(file)
+    console.log("[v0] File selected:", file.name, file.type, file.size);
+    setAudioFile(file);
 
     try {
-      console.log("[v0] Reading file as array buffer...")
-      const arrayBuffer = await file.arrayBuffer()
-      console.log("[v0] Array buffer created, size:", arrayBuffer.byteLength)
+      console.log("[v0] Reading file as array buffer...");
+      const arrayBuffer = await file.arrayBuffer();
+      console.log("[v0] Array buffer created, size:", arrayBuffer.byteLength);
 
-      console.log("[v0] Decoding audio data...")
-      const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer)
-      console.log("[v0] Audio decoded successfully, duration:", buffer.duration)
+      console.log("[v0] Decoding audio data...");
+      const buffer = await audioContextRef.current!.decodeAudioData(
+        arrayBuffer
+      );
+      console.log(
+        "[v0] Audio decoded successfully, duration:",
+        buffer.duration
+      );
 
-      setAudioBuffer(buffer)
-      setProcessedBuffer(buffer)
-      setDuration(buffer.duration)
-      setCurrentTime(0)
-      pauseTimeRef.current = 0
-      setIsPlaying(false)
-      setClips([])
+      setAudioBuffer(buffer);
+      setProcessedBuffer(buffer);
+      setDuration(buffer.duration);
+      setCurrentTime(0);
+      pauseTimeRef.current = 0;
+      setIsPlaying(false);
+      setClips([]);
 
-      console.log("[v0] Audio file loaded successfully")
+      console.log("[v0] Audio file loaded successfully");
     } catch (error) {
-      console.error("[v0] Error loading audio file:", error)
-      alert(`Error loading audio file: ${error}`)
+      console.error("[v0] Error loading audio file:", error);
+      alert(`Error loading audio file: ${error}`);
     }
-  }
+  };
 
   const handleSampleSelect = (sample: (typeof SAMPLE_LIBRARY)[0]) => {
-    console.log("[v0] Sample selected:", sample)
+    console.log("[v0] Sample selected:", sample);
     // TODO: Load sample file when user uploads real samples
-    setIsSampleLibraryOpen(false)
-  }
+    setIsSampleLibraryOpen(false);
+  };
 
-  const playAudio = () => {
-    if (!processedBuffer || !audioContextRef.current) return
+  const playAudio = (clip?: Clip) => {
+    if (!processedBuffer || !audioContextRef.current) return;
+    const clipToPlay = clip ?? clips.find((c) => c.id === selectedClipId);
+    console.log(clipToPlay, "WHWYWYWYWY");
 
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
 
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
+      cancelAnimationFrame(animationFrameRef.current);
     }
 
-    // const offset = pauseTimeRef.current
     // Determine what to play based on selection
-    let bufferToPlay = processedBuffer
-    let startOffset = pauseTimeRef.current
-    let playDuration = duration
+    let bufferToPlay = processedBuffer;
+    let startOffset = pauseTimeRef.current;
+    let playDuration = duration;
 
-    if (selectedClipId) {
-      // Find the selected clip
-      const selectedClip = clips.find(c => c.id === selectedClipId)
-      if (selectedClip) {
-        // Create a buffer for just this clip
-        const clipStartSample = Math.floor(selectedClip.startTime * processedBuffer.sampleRate)
-        const clipEndSample = Math.floor(selectedClip.endTime * processedBuffer.sampleRate)
-        const clipLength = clipEndSample - clipStartSample
+    if (clipToPlay) {
+      console.log(clipToPlay, "HEHEHEHEEHEH");
+      // Create a buffer for just this clip
+      const clipStartSample = Math.floor(
+        clipToPlay.startTime * processedBuffer.sampleRate
+      );
+      const clipEndSample = Math.floor(
+        clipToPlay.endTime * processedBuffer.sampleRate
+      );
+      const clipLength = clipEndSample - clipStartSample;
 
-        const clipBuffer = audioContextRef.current.createBuffer(
-          processedBuffer.numberOfChannels,
-          clipLength,
-          processedBuffer.sampleRate
-        )
-
-        for (let channel = 0; channel < processedBuffer.numberOfChannels; channel++) {
-          const sourceData = processedBuffer.getChannelData(channel)
-          const clipData = clipBuffer.getChannelData(channel)
-          for (let i = 0; i < clipLength; i++) {
-            clipData[i] = sourceData[clipStartSample + i]
-          }
-        }
-
-        bufferToPlay = clipBuffer
-        playDuration = selectedClip.endTime - selectedClip.startTime
-        // When playing a clip, always start from beginning
-        startOffset = 0
-      }
+      startOffset = clipToPlay.startTime;
     }
 
-    sourceNodeRef.current = audioContextRef.current.createBufferSource()
-    sourceNodeRef.current.buffer = processedBuffer
-    sourceNodeRef.current.playbackRate.value = effects.pitch
+    sourceNodeRef.current = audioContextRef.current.createBufferSource();
+    sourceNodeRef.current.buffer = bufferToPlay;
+    sourceNodeRef.current.playbackRate.value = effects.pitch;
 
-    const ctx = audioContextRef.current
-    const delayNode = ctx.createDelay(2)
-    const delayFeedbackGain = ctx.createGain()
-    const delayWetGain = ctx.createGain()
-    const dryGain = ctx.createGain()
-    const reverbWetGain = ctx.createGain()
+    const ctx = audioContextRef.current;
+    const delayNode = ctx.createDelay(2);
+    const delayFeedbackGain = ctx.createGain();
+    const delayWetGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const reverbWetGain = ctx.createGain();
 
-    delayNode.delayTime.value = effects.delayTime
-    delayFeedbackGain.gain.value = effects.delayFeedback
-    delayWetGain.gain.value = effects.delayMix
-    dryGain.gain.value = 1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5
-    reverbWetGain.gain.value = effects.reverbMix
+    delayNode.delayTime.value = effects.delayTime;
+    delayFeedbackGain.gain.value = effects.delayFeedback;
+    delayWetGain.gain.value = effects.delayMix;
+    dryGain.gain.value =
+      1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
+    reverbWetGain.gain.value = effects.reverbMix;
 
     // Connect delay
-    delayNode.connect(delayFeedbackGain)
-    delayFeedbackGain.connect(delayNode)
-    delayNode.connect(delayWetGain)
+    delayNode.connect(delayFeedbackGain);
+    delayFeedbackGain.connect(delayNode);
+    delayNode.connect(delayWetGain);
 
-    const reverb = createReverb(ctx, effects.reverbRoomSize, effects.reverbDecay)
+    const reverb = createReverb(
+      ctx,
+      effects.reverbRoomSize,
+      effects.reverbDecay
+    );
 
     // Connect source to all paths
-    sourceNodeRef.current.connect(dryGain)
-    sourceNodeRef.current.connect(delayNode)
-    sourceNodeRef.current.connect(reverb.input)
+    sourceNodeRef.current.connect(dryGain);
+    sourceNodeRef.current.connect(delayNode);
+    sourceNodeRef.current.connect(reverb.input);
 
     // Mix all paths to output
-    dryGain.connect(gainNodeRef.current!)
-    delayWetGain.connect(gainNodeRef.current!)
-    reverb.output.connect(reverbWetGain)
-    reverbWetGain.connect(gainNodeRef.current!)
+    dryGain.connect(gainNodeRef.current!);
+    delayWetGain.connect(gainNodeRef.current!);
+    reverb.output.connect(reverbWetGain);
+    reverbWetGain.connect(gainNodeRef.current!);
 
-    sourceNodeRef.current.start(0, startOffset)
-    startTimeRef.current = audioContextRef.current.currentTime - startOffset / effects.pitch
-    playbackRateRef.current = effects.pitch
-    setIsPlaying(true)
+    sourceNodeRef.current.start(0, startOffset);
+    startTimeRef.current =
+      audioContextRef.current.currentTime - startOffset / effects.pitch;
+    playbackRateRef.current = effects.pitch;
+    setIsPlaying(true);
 
     const updateTime = () => {
       if (audioContextRef.current && sourceNodeRef.current) {
-        const contextElapsed = audioContextRef.current.currentTime - startTimeRef.current
-        const bufferElapsed = contextElapsed * playbackRateRef.current
+        const contextElapsed =
+          audioContextRef.current.currentTime - startTimeRef.current;
+        const bufferElapsed = contextElapsed * playbackRateRef.current;
 
-        setCurrentTime(bufferElapsed)
+        setCurrentTime(bufferElapsed);
 
-        if (bufferElapsed >= duration) {
+        if (bufferElapsed >= playDuration) {
           if (isManuallyStoppingRef.current) {
-            return
+            return;
           }
           if (isLoopingRef.current) {
-            pauseTimeRef.current = 0
-            playAudio()
-            return
+            pauseTimeRef.current = 0;
+            playAudio();
+            return;
           } else {
-            setIsPlaying(false)
-            setCurrentTime(0)
-            pauseTimeRef.current = 0
-            animationFrameRef.current = null
-            return
+            setIsPlaying(false);
+            setCurrentTime(0);
+            pauseTimeRef.current = 0;
+            animationFrameRef.current = null;
+            return;
           }
         }
 
-        animationFrameRef.current = requestAnimationFrame(updateTime)
+        animationFrameRef.current = requestAnimationFrame(updateTime);
       }
-    }
-    animationFrameRef.current = requestAnimationFrame(updateTime)
-  }
+    };
+    animationFrameRef.current = requestAnimationFrame(updateTime);
+  };
 
   const pauseAudio = () => {
     if (sourceNodeRef.current && audioContextRef.current) {
-      isManuallyStoppingRef.current = true
-      isLoopingRef.current = false
-      setIsLooping(false)
+      isManuallyStoppingRef.current = true;
+      isLoopingRef.current = false;
+      setIsLooping(false);
 
       if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
 
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
-      const contextElapsed = audioContextRef.current.currentTime - startTimeRef.current
-      pauseTimeRef.current = contextElapsed * playbackRateRef.current
-      setIsPlaying(false)
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
+      const contextElapsed =
+        audioContextRef.current.currentTime - startTimeRef.current;
+      pauseTimeRef.current = contextElapsed * playbackRateRef.current;
+      setIsPlaying(false);
 
       setTimeout(() => {
-        isManuallyStoppingRef.current = false
-      }, 100)
+        isManuallyStoppingRef.current = false;
+      }, 100);
     }
-  }
+  };
 
   const handleClipSelect = (clipId: string | null) => {
     // Stop current playback
     if (isPlaying) {
-      pauseAudio()
+      pauseAudio();
     }
-    
-    // Reset to beginning
-    setCurrentTime(0)
-    pauseTimeRef.current = 0
-    
+
     // Set selection
-    setSelectedClipId(clipId)
-    
+    setSelectedClipId(clipId);
+
     // Update duration
     if (clipId) {
-      const clip = clips.find(c => c.id === clipId)
+      const clip = clips.find((c) => c.id === clipId);
       if (clip) {
-        setDuration(clip.endTime - clip.startTime)
+        // setDuration(clip.endTime - clip.startTime);
+        pauseTimeRef.current = clip.startTime;
+        setCurrentTime(clip.startTime);
+        playAudio(clip);
       }
     } else {
       // Restore original duration
-      if (audioBuffer) {
-        setDuration(audioBuffer.duration)
-      }
+      pauseTimeRef.current = 0;
+      setCurrentTime(0);
+      pauseAudio();
     }
-  }
+  };
 
   const resetAudio = () => {
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
-    setIsPlaying(false)
-    setCurrentTime(0)
-    pauseTimeRef.current = 0
-  }
+    setIsPlaying(false);
+    setCurrentTime(0);
+    pauseTimeRef.current = 0;
+  };
 
   const togglePlayPause = () => {
     if (isPlaying) {
-      pauseAudio()
+      pauseAudio();
     } else {
-      playAudio()
+      playAudio();
     }
-  }
+  };
 
   const downloadProcessedAudio = async () => {
-    if (!processedBuffer) return
+    if (!processedBuffer) return;
 
-    setIsRendering(true)
+    setIsRendering(true);
 
     try {
       const offlineCtx = new OfflineAudioContext(
         processedBuffer.numberOfChannels,
         processedBuffer.length,
-        processedBuffer.sampleRate,
-      )
+        processedBuffer.sampleRate
+      );
 
-      const source = offlineCtx.createBufferSource()
-      source.buffer = processedBuffer
-      source.playbackRate.value = effects.pitch
+      const source = offlineCtx.createBufferSource();
+      source.buffer = processedBuffer;
+      source.playbackRate.value = effects.pitch;
 
-      const delayNode = offlineCtx.createDelay(2)
-      const delayFeedbackGain = offlineCtx.createGain()
-      const delayWetGain = offlineCtx.createGain()
-      const dryGain = offlineCtx.createGain()
-      const reverbWetGain = offlineCtx.createGain()
+      const delayNode = offlineCtx.createDelay(2);
+      const delayFeedbackGain = offlineCtx.createGain();
+      const delayWetGain = offlineCtx.createGain();
+      const dryGain = offlineCtx.createGain();
+      const reverbWetGain = offlineCtx.createGain();
 
-      delayNode.delayTime.value = effects.delayTime
-      delayFeedbackGain.gain.value = effects.delayFeedback
-      delayWetGain.gain.value = effects.delayMix
-      dryGain.gain.value = 1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5
-      reverbWetGain.gain.value = effects.reverbMix
+      delayNode.delayTime.value = effects.delayTime;
+      delayFeedbackGain.gain.value = effects.delayFeedback;
+      delayWetGain.gain.value = effects.delayMix;
+      dryGain.gain.value =
+        1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
+      reverbWetGain.gain.value = effects.reverbMix;
 
-      delayNode.connect(delayFeedbackGain)
-      delayFeedbackGain.connect(delayNode)
-      delayNode.connect(delayWetGain)
+      delayNode.connect(delayFeedbackGain);
+      delayFeedbackGain.connect(delayNode);
+      delayNode.connect(delayWetGain);
 
-      const reverb = createReverb(offlineCtx, effects.reverbRoomSize, effects.reverbDecay)
+      const reverb = createReverb(
+        offlineCtx,
+        effects.reverbRoomSize,
+        effects.reverbDecay
+      );
 
-      source.connect(dryGain)
-      source.connect(delayNode)
-      source.connect(reverb.input)
+      source.connect(dryGain);
+      source.connect(delayNode);
+      source.connect(reverb.input);
 
-      dryGain.connect(offlineCtx.destination)
-      delayWetGain.connect(offlineCtx.destination)
-      reverb.output.connect(reverbWetGain)
-      reverbWetGain.connect(offlineCtx.destination)
+      dryGain.connect(offlineCtx.destination);
+      delayWetGain.connect(offlineCtx.destination);
+      reverb.output.connect(reverbWetGain);
+      reverbWetGain.connect(offlineCtx.destination);
 
-      source.start(0)
-      const renderedBuffer = await offlineCtx.startRendering()
+      source.start(0);
+      const renderedBuffer = await offlineCtx.startRendering();
 
-      const wavBlob = audioBufferToWav(renderedBuffer)
-      const url = URL.createObjectURL(wavBlob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `fourpage-processed-${Date.now()}.wav`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const wavBlob = audioBufferToWav(renderedBuffer);
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fourpage-processed-${Date.now()}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      setIsRendering(false)
+      setIsRendering(false);
     } catch (error) {
-      console.error("Error rendering audio:", error)
-      alert("Error processing audio for download")
-      setIsRendering(false)
+      console.error("Error rendering audio:", error);
+      alert("Error processing audio for download");
+      setIsRendering(false);
     }
-  }
+  };
 
   const downloadClips = async () => {
-    if (!processedBuffer || clips.length === 0) return
+    if (!processedBuffer || clips.length === 0) return;
 
-    setIsRendering(true)
+    setIsRendering(true);
 
     try {
       for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i]
+        const clip = clips[i];
 
         // Calculate sample positions
-        const startSample = Math.floor(clip.startTime * processedBuffer.sampleRate)
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate)
-        const clipLength = endSample - startSample
+        const startSample = Math.floor(
+          clip.startTime * processedBuffer.sampleRate
+        );
+        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
+        const clipLength = endSample - startSample;
 
         // Create a new buffer for this clip
         const clipBuffer = audioContextRef.current!.createBuffer(
           processedBuffer.numberOfChannels,
           clipLength,
-          processedBuffer.sampleRate,
-        )
+          processedBuffer.sampleRate
+        );
 
         // Copy the clip data
-        for (let channel = 0; channel < processedBuffer.numberOfChannels; channel++) {
-          const sourceData = processedBuffer.getChannelData(channel)
-          const clipData = clipBuffer.getChannelData(channel)
+        for (
+          let channel = 0;
+          channel < processedBuffer.numberOfChannels;
+          channel++
+        ) {
+          const sourceData = processedBuffer.getChannelData(channel);
+          const clipData = clipBuffer.getChannelData(channel);
           for (let j = 0; j < clipLength; j++) {
-            clipData[j] = sourceData[startSample + j]
+            clipData[j] = sourceData[startSample + j];
           }
         }
 
@@ -507,211 +527,243 @@ export default function AudioManipulator() {
         const offlineCtx = new OfflineAudioContext(
           clipBuffer.numberOfChannels,
           clipBuffer.length,
-          clipBuffer.sampleRate,
-        )
+          clipBuffer.sampleRate
+        );
 
-        const source = offlineCtx.createBufferSource()
-        source.buffer = clipBuffer
-        source.playbackRate.value = effects.pitch
+        const source = offlineCtx.createBufferSource();
+        source.buffer = clipBuffer;
+        source.playbackRate.value = effects.pitch;
 
-        const delayNode = offlineCtx.createDelay(2)
-        const delayFeedbackGain = offlineCtx.createGain()
-        const delayWetGain = offlineCtx.createGain()
-        const dryGain = offlineCtx.createGain()
-        const reverbWetGain = offlineCtx.createGain()
+        const delayNode = offlineCtx.createDelay(2);
+        const delayFeedbackGain = offlineCtx.createGain();
+        const delayWetGain = offlineCtx.createGain();
+        const dryGain = offlineCtx.createGain();
+        const reverbWetGain = offlineCtx.createGain();
 
-        delayNode.delayTime.value = effects.delayTime
-        delayFeedbackGain.gain.value = effects.delayFeedback
-        delayWetGain.gain.value = effects.delayMix
-        dryGain.gain.value = 1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5
-        reverbWetGain.gain.value = effects.reverbMix
+        delayNode.delayTime.value = effects.delayTime;
+        delayFeedbackGain.gain.value = effects.delayFeedback;
+        delayWetGain.gain.value = effects.delayMix;
+        dryGain.gain.value =
+          1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
+        reverbWetGain.gain.value = effects.reverbMix;
 
-        delayNode.connect(delayFeedbackGain)
-        delayFeedbackGain.connect(delayNode)
-        delayNode.connect(delayWetGain)
+        delayNode.connect(delayFeedbackGain);
+        delayFeedbackGain.connect(delayNode);
+        delayNode.connect(delayWetGain);
 
-        const reverb = createReverb(offlineCtx, effects.reverbRoomSize, effects.reverbDecay)
+        const reverb = createReverb(
+          offlineCtx,
+          effects.reverbRoomSize,
+          effects.reverbDecay
+        );
 
-        source.connect(dryGain)
-        source.connect(delayNode)
-        source.connect(reverb.input)
+        source.connect(dryGain);
+        source.connect(delayNode);
+        source.connect(reverb.input);
 
-        dryGain.connect(offlineCtx.destination)
-        delayWetGain.connect(offlineCtx.destination)
-        reverb.output.connect(reverbWetGain)
-        reverbWetGain.connect(offlineCtx.destination)
+        dryGain.connect(offlineCtx.destination);
+        delayWetGain.connect(offlineCtx.destination);
+        reverb.output.connect(reverbWetGain);
+        reverbWetGain.connect(offlineCtx.destination);
 
-        source.start(0)
-        const renderedBuffer = await offlineCtx.startRendering()
+        source.start(0);
+        const renderedBuffer = await offlineCtx.startRendering();
 
-        const wavBlob = audioBufferToWav(renderedBuffer)
-        const url = URL.createObjectURL(wavBlob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `fourpage-clip-${i + 1}-${Date.now()}.wav`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
+        const wavBlob = audioBufferToWav(renderedBuffer);
+        const url = URL.createObjectURL(wavBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `fourpage-clip-${i + 1}-${Date.now()}.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
 
         // Small delay between downloads
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      setIsRendering(false)
+      setIsRendering(false);
     } catch (error) {
-      console.error("Error rendering clips:", error)
-      alert("Error processing clips for download")
-      setIsRendering(false)
+      console.error("Error rendering clips:", error);
+      alert("Error processing clips for download");
+      setIsRendering(false);
     }
-  }
+  };
 
   const downloadSequence = async () => {
-    if (!processedBuffer || clips.length === 0) return
+    if (!processedBuffer || clips.length === 0) return;
 
-    setIsRendering(true)
+    setIsRendering(true);
 
     try {
       // Sort clips by start time
-      const sortedClips = [...clips].sort((a, b) => a.startTime - b.startTime)
+      const sortedClips = [...clips].sort((a, b) => a.startTime - b.startTime);
 
       // Calculate total length of sequence
-      let totalLength = 0
+      let totalLength = 0;
       for (const clip of sortedClips) {
-        const startSample = Math.floor(clip.startTime * processedBuffer.sampleRate)
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate)
-        totalLength += endSample - startSample
+        const startSample = Math.floor(
+          clip.startTime * processedBuffer.sampleRate
+        );
+        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
+        totalLength += endSample - startSample;
       }
 
       // Create a new buffer for the sequence
       const sequenceBuffer = audioContextRef.current!.createBuffer(
         processedBuffer.numberOfChannels,
         totalLength,
-        processedBuffer.sampleRate,
-      )
+        processedBuffer.sampleRate
+      );
 
       // Copy all clips into the sequence buffer
-      let currentPosition = 0
+      let currentPosition = 0;
       for (const clip of sortedClips) {
-        const startSample = Math.floor(clip.startTime * processedBuffer.sampleRate)
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate)
-        const clipLength = endSample - startSample
+        const startSample = Math.floor(
+          clip.startTime * processedBuffer.sampleRate
+        );
+        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
+        const clipLength = endSample - startSample;
 
-        for (let channel = 0; channel < processedBuffer.numberOfChannels; channel++) {
-          const sourceData = processedBuffer.getChannelData(channel)
-          const sequenceData = sequenceBuffer.getChannelData(channel)
+        for (
+          let channel = 0;
+          channel < processedBuffer.numberOfChannels;
+          channel++
+        ) {
+          const sourceData = processedBuffer.getChannelData(channel);
+          const sequenceData = sequenceBuffer.getChannelData(channel);
           for (let j = 0; j < clipLength; j++) {
-            sequenceData[currentPosition + j] = sourceData[startSample + j]
+            sequenceData[currentPosition + j] = sourceData[startSample + j];
           }
         }
 
-        currentPosition += clipLength
+        currentPosition += clipLength;
       }
 
       // Render with effects
       const offlineCtx = new OfflineAudioContext(
         sequenceBuffer.numberOfChannels,
         sequenceBuffer.length,
-        sequenceBuffer.sampleRate,
-      )
+        sequenceBuffer.sampleRate
+      );
 
-      const source = offlineCtx.createBufferSource()
-      source.buffer = sequenceBuffer
-      source.playbackRate.value = effects.pitch
+      const source = offlineCtx.createBufferSource();
+      source.buffer = sequenceBuffer;
+      source.playbackRate.value = effects.pitch;
 
-      const delayNode = offlineCtx.createDelay(2)
-      const delayFeedbackGain = offlineCtx.createGain()
-      const delayWetGain = offlineCtx.createGain()
-      const dryGain = offlineCtx.createGain()
-      const reverbWetGain = offlineCtx.createGain()
+      const delayNode = offlineCtx.createDelay(2);
+      const delayFeedbackGain = offlineCtx.createGain();
+      const delayWetGain = offlineCtx.createGain();
+      const dryGain = offlineCtx.createGain();
+      const reverbWetGain = offlineCtx.createGain();
 
-      delayNode.delayTime.value = effects.delayTime
-      delayFeedbackGain.gain.value = effects.delayFeedback
-      delayWetGain.gain.value = effects.delayMix
-      dryGain.gain.value = 1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5
-      reverbWetGain.gain.value = effects.reverbMix
+      delayNode.delayTime.value = effects.delayTime;
+      delayFeedbackGain.gain.value = effects.delayFeedback;
+      delayWetGain.gain.value = effects.delayMix;
+      dryGain.gain.value =
+        1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
+      reverbWetGain.gain.value = effects.reverbMix;
 
-      delayNode.connect(delayFeedbackGain)
-      delayFeedbackGain.connect(delayNode)
-      delayNode.connect(delayWetGain)
+      delayNode.connect(delayFeedbackGain);
+      delayFeedbackGain.connect(delayNode);
+      delayNode.connect(delayWetGain);
 
-      const reverb = createReverb(offlineCtx, effects.reverbRoomSize, effects.reverbDecay)
+      const reverb = createReverb(
+        offlineCtx,
+        effects.reverbRoomSize,
+        effects.reverbDecay
+      );
 
-      source.connect(dryGain)
-      source.connect(delayNode)
-      source.connect(reverb.input)
+      source.connect(dryGain);
+      source.connect(delayNode);
+      source.connect(reverb.input);
 
-      dryGain.connect(offlineCtx.destination)
-      delayWetGain.connect(offlineCtx.destination)
-      reverb.output.connect(reverbWetGain)
-      reverbWetGain.connect(offlineCtx.destination)
+      dryGain.connect(offlineCtx.destination);
+      delayWetGain.connect(offlineCtx.destination);
+      reverb.output.connect(reverbWetGain);
+      reverbWetGain.connect(offlineCtx.destination);
 
-      source.start(0)
-      const renderedBuffer = await offlineCtx.startRendering()
+      source.start(0);
+      const renderedBuffer = await offlineCtx.startRendering();
 
-      const wavBlob = audioBufferToWav(renderedBuffer)
-      const url = URL.createObjectURL(wavBlob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `fourpage-sequence-${Date.now()}.wav`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const wavBlob = audioBufferToWav(renderedBuffer);
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fourpage-sequence-${Date.now()}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      setIsRendering(false)
+      setIsRendering(false);
     } catch (error) {
-      console.error("Error rendering sequence:", error)
-      alert("Error processing sequence for download")
-      setIsRendering(false)
+      console.error("Error rendering sequence:", error);
+      alert("Error processing sequence for download");
+      setIsRendering(false);
     }
-  }
+  };
 
   const seekAudio = (time: number) => {
-    const wasPlaying = isPlaying
+    const wasPlaying = isPlaying;
 
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
-      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
     }
 
     if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
-    pauseTimeRef.current = time
-    setCurrentTime(time)
-    setIsPlaying(false)
+    pauseTimeRef.current = time;
+    setCurrentTime(time);
+    setIsPlaying(false);
 
     if (wasPlaying) {
-      playAudio()
+      playAudio();
     }
-  }
+  };
 
-  const createReverb = (ctx: AudioContext | OfflineAudioContext, roomSize: number, decay: number) => {
-    const delays = [ctx.createDelay(1), ctx.createDelay(1), ctx.createDelay(1), ctx.createDelay(1)]
+  const createReverb = (
+    ctx: AudioContext | OfflineAudioContext,
+    roomSize: number,
+    decay: number
+  ) => {
+    const delays = [
+      ctx.createDelay(1),
+      ctx.createDelay(1),
+      ctx.createDelay(1),
+      ctx.createDelay(1),
+    ];
 
-    const gains = [ctx.createGain(), ctx.createGain(), ctx.createGain(), ctx.createGain()]
+    const gains = [
+      ctx.createGain(),
+      ctx.createGain(),
+      ctx.createGain(),
+      ctx.createGain(),
+    ];
 
-    const baseTimes = [0.0297, 0.0371, 0.0411, 0.0437]
+    const baseTimes = [0.0297, 0.0371, 0.0411, 0.0437];
     delays.forEach((delay, i) => {
-      delay.delayTime.value = baseTimes[i] * (0.5 + roomSize * 1.5)
-      gains[i].gain.value = decay * 0.7
-    })
+      delay.delayTime.value = baseTimes[i] * (0.5 + roomSize * 1.5);
+      gains[i].gain.value = decay * 0.7;
+    });
 
-    const input = ctx.createGain()
-    const output = ctx.createGain()
+    const input = ctx.createGain();
+    const output = ctx.createGain();
 
     delays.forEach((delay, i) => {
-      input.connect(delay)
-      delay.connect(gains[i])
-      gains[i].connect(output)
-      gains[i].connect(delay)
-    })
+      input.connect(delay);
+      delay.connect(gains[i]);
+      gains[i].connect(output);
+      gains[i].connect(delay);
+    });
 
-    return { input, output }
-  }
+    return { input, output };
+  };
 
   return (
     <div className="min-h-screen bg-background p-2 md:p-4">
@@ -719,13 +771,20 @@ export default function AudioManipulator() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
-              FOURPAGE <span className="text-sm md:text-lg font-normal text-muted-foreground">Sixty Lens</span>
+              FOURPAGE{" "}
+              <span className="text-sm md:text-lg font-normal text-muted-foreground">
+                Sixty Lens
+              </span>
             </h1>
           </div>
           <div className="flex items-center gap-2">
             {isSignedIn ? (
               <Link href="/profile">
-                <Button variant="outline" size="sm" className="font-mono bg-transparent p-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="font-mono bg-transparent p-2"
+                >
                   <Avatar className="w-6 h-6">
                     <AvatarFallback className="bg-transparent text-foreground" />
                   </Avatar>
@@ -734,12 +793,19 @@ export default function AudioManipulator() {
             ) : (
               <>
                 <Link href="/sign-in">
-                  <Button variant="outline" size="sm" className="font-mono uppercase tracking-wider bg-transparent">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="font-mono uppercase tracking-wider bg-transparent"
+                  >
                     Sign In
                   </Button>
                 </Link>
                 <Link href="/sign-up">
-                  <Button size="sm" className="font-mono uppercase tracking-wider">
+                  <Button
+                    size="sm"
+                    className="font-mono uppercase tracking-wider"
+                  >
                     Sign Up
                   </Button>
                 </Link>
@@ -753,7 +819,11 @@ export default function AudioManipulator() {
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className="font-mono bg-transparent"
               >
-                {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {theme === "dark" ? (
+                  <Sun className="w-4 h-4" />
+                ) : (
+                  <Moon className="w-4 h-4" />
+                )}
               </Button>
             )}
           </div>
@@ -765,7 +835,9 @@ export default function AudioManipulator() {
           {!audioFile ? (
             <div className="border-2 border-foreground p-12 flex flex-col items-center justify-center min-h-[300px]">
               <Upload className="w-16 h-16 mb-4" />
-              <h2 className="font-mono text-xl mb-4 uppercase tracking-wider">Load Sample</h2>
+              <h2 className="font-mono text-xl mb-4 uppercase tracking-wider">
+                Load Sample
+              </h2>
               <div className="flex flex-col gap-3 w-full max-w-xs">
                 <label className="cursor-pointer w-full">
                   <input
@@ -786,7 +858,10 @@ export default function AudioManipulator() {
                     Select Audio File
                   </Button>
                 </label>
-                <Dialog open={isSampleLibraryOpen} onOpenChange={setIsSampleLibraryOpen}>
+                <Dialog
+                  open={isSampleLibraryOpen}
+                  onOpenChange={setIsSampleLibraryOpen}
+                >
                   <DialogTrigger asChild>
                     <Button
                       variant="outline"
@@ -798,7 +873,9 @@ export default function AudioManipulator() {
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle className="font-mono text-xl uppercase tracking-wider">Sample Library</DialogTitle>
+                      <DialogTitle className="font-mono text-xl uppercase tracking-wider">
+                        Sample Library
+                      </DialogTitle>
                       <DialogDescription className="font-mono text-sm">
                         Select a sample from the library to load
                       </DialogDescription>
@@ -812,11 +889,17 @@ export default function AudioManipulator() {
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1">
-                              <h3 className="font-mono font-bold text-base mb-1">{sample.name}</h3>
+                              <h3 className="font-mono font-bold text-base mb-1">
+                                {sample.name}
+                              </h3>
                               <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <span className="font-mono">By {sample.author}</span>
+                                <span className="font-mono">
+                                  By {sample.author}
+                                </span>
                                 <span className="font-mono">•</span>
-                                <span className="font-mono uppercase tracking-wider">{sample.genre}</span>
+                                <span className="font-mono uppercase tracking-wider">
+                                  {sample.genre}
+                                </span>
                               </div>
                             </div>
                             <PlayIcon className="w-5 h-5 text-muted-foreground flex-shrink-0" />
@@ -875,8 +958,16 @@ export default function AudioManipulator() {
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <Button onClick={togglePlayPause} size="sm" className="font-mono uppercase tracking-wider">
-                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      <Button
+                        onClick={togglePlayPause}
+                        size="sm"
+                        className="font-mono uppercase tracking-wider"
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
                       </Button>
                       <Button
                         onClick={resetAudio}
@@ -890,7 +981,9 @@ export default function AudioManipulator() {
                         onClick={() => setIsLooping(!isLooping)}
                         variant={isLooping ? "default" : "outline"}
                         size="sm"
-                        className={`font-mono uppercase tracking-wider ${isLooping ? "" : "bg-transparent"}`}
+                        className={`font-mono uppercase tracking-wider ${
+                          isLooping ? "" : "bg-transparent"
+                        }`}
                       >
                         <Repeat className="w-4 h-4" />
                       </Button>
@@ -904,7 +997,9 @@ export default function AudioManipulator() {
                           >
                             <Download className="w-4 h-4" />
                             {isRendering && <span className="ml-2">...</span>}
-                            {!isRendering && <ChevronDown className="w-3 h-3 ml-1" />}
+                            {!isRendering && (
+                              <ChevronDown className="w-3 h-3 ml-1" />
+                            )}
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="font-mono">
@@ -931,7 +1026,8 @@ export default function AudioManipulator() {
                     <div className="font-mono text-xs uppercase tracking-wider">
                       {selectedClipId && (
                         <span className="text-muted-foreground mr-2">
-                          Clip {clips.findIndex(c => c.id === selectedClipId) + 1}
+                          Clip{" "}
+                          {clips.findIndex((c) => c.id === selectedClipId) + 1}
                         </span>
                       )}
                       {formatTime(currentTime)} / {formatTime(duration)}
@@ -947,7 +1043,9 @@ export default function AudioManipulator() {
                     </label>
                     <Slider
                       value={[effects.volume]}
-                      onValueChange={([value]) => setEffects({ ...effects, volume: value })}
+                      onValueChange={([value]) =>
+                        setEffects({ ...effects, volume: value })
+                      }
                       min={0}
                       max={1}
                       step={0.01}
@@ -958,18 +1056,18 @@ export default function AudioManipulator() {
               </div>
 
               {/* <SamplerPads audioBuffer={audioBuffer} clips={clips} /> */}
-              <SamplerPads 
-                audioBuffer={audioBuffer} 
+              <SamplerPads
+                audioBuffer={audioBuffer}
                 clips={clips}
                 selectedClipId={selectedClipId}
                 onClipSelect={handleClipSelect}
                 isPlaying={isPlaying}
                 onPlayStateChange={(playing) => {
-                  if (playing) {
-                    playAudio()
-                  } else {
-                    pauseAudio()
-                  }
+                  // if (playing) {
+                  //   playAudio();
+                  // } else {
+                  //   pauseAudio();
+                  // }
                 }}
               />
             </>
@@ -987,11 +1085,13 @@ export default function AudioManipulator() {
         </div>
       </footer>
     </div>
-  )
+  );
 }
 
 function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, "0")}:${secs
+    .toString()
+    .padStart(2, "0")}`;
 }

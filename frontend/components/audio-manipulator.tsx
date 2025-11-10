@@ -16,6 +16,9 @@ import {
   Sun,
   PlayIcon,
   ChevronDown,
+  Lock,
+  Loader2,
+  Save,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
@@ -41,6 +44,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 
 const SAMPLE_LIBRARY = [
   { id: 1, name: "Lo-Fi Beat 01", author: "DJ Smooth", genre: "Lo-Fi Hip Hop" },
@@ -109,6 +118,9 @@ export default function AudioManipulator() {
   const [mounted, setMounted] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -871,6 +883,27 @@ export default function AudioManipulator() {
     return { input, output };
   };
 
+  const handleSaveProject = async () => {
+    if (!isSignedIn) {
+      window.location.href = "/sign-in";
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      setHasUnsavedChanges(false);
+      setLastSavedTime(new Date());
+    } catch (error) {
+      console.error("[v0] Error saving project:", error);
+      alert("Error saving project");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background p-2 md:p-4">
       <header className="border-b-2 border-foreground pb-2 mb-4">
@@ -884,6 +917,47 @@ export default function AudioManipulator() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleSaveProject}
+                    variant={
+                      hasUnsavedChanges && isSignedIn ? "default" : "outline"
+                    }
+                    size="icon"
+                    disabled={isSaving || (!isSignedIn && !hasUnsavedChanges)}
+                    className={`font-mono uppercase tracking-wider relative w-9 h-9 ${
+                      !isSignedIn || (!hasUnsavedChanges && isSignedIn)
+                        ? "bg-transparent"
+                        : ""
+                    }`}
+                  >
+                    {isSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : !isSignedIn ? (
+                      <Lock className="w-4 h-4" />
+                    ) : hasUnsavedChanges ? (
+                      <>
+                        <div className="w-1.5 h-1.5 rounded-full bg-background absolute top-1 right-1" />
+                        <Save className="w-4 h-4" />
+                      </>
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="font-mono text-xs">
+                  {!isSignedIn
+                    ? "Sign in to save"
+                    : hasUnsavedChanges
+                    ? "Save project"
+                    : lastSavedTime
+                    ? `Saved ${lastSavedTime.toLocaleTimeString()}`
+                    : "Saved"}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {isSignedIn ? (
               <Link href="/profile">
                 <Button

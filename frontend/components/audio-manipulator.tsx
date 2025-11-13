@@ -19,6 +19,7 @@ import {
   Lock,
   Loader2,
   Save,
+  LogIn,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
@@ -128,8 +129,8 @@ export default function AudioManipulator() {
   }, []);
 
   useEffect(() => {
-    if (!clips) {
-      setPadAssignments([]);
+    if (clips.length === 0) {
+      setPadAssignments(Array(16).fill(null));
     }
   }, [clips]);
 
@@ -159,10 +160,14 @@ export default function AudioManipulator() {
   }, [effects.volume]);
 
   useEffect(() => {
-    if (isPlaying && sourceNodeRef.current) {
-      pauseAudio();
-      playAudio();
-    }
+    const timer = setTimeout(() => {
+      if (isPlaying && sourceNodeRef.current) {
+        pauseAudio();
+        playAudio();
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
   }, [effects.pitch]);
 
   useEffect(() => {
@@ -170,16 +175,22 @@ export default function AudioManipulator() {
 
     if (effects.reverse) {
       const reversed = reverseAudioBuffer(audioBuffer);
+      // pauseTimeRef.current = duration - pauseTimeRef.current;
+      // setCurrentTime(pauseTimeRef.current);
       setProcessedBuffer(reversed);
     } else {
+      // pauseTimeRef.current = duration - pauseTimeRef.current;
+      // setCurrentTime(pauseTimeRef.current);
       setProcessedBuffer(audioBuffer);
     }
+  }, [effects.reverse, audioBuffer]);
 
+  useEffect(() => {
     if (isPlaying) {
       pauseAudio();
       setTimeout(() => playAudio(), 50);
     }
-  }, [effects.reverse, audioBuffer]);
+  }, [processedBuffer]);
 
   // CHANGED: Replaced broken useEffect with proper sequencer logic
   // This plays the clip assigned to the current sequencer step
@@ -215,7 +226,6 @@ export default function AudioManipulator() {
   const findNextAssignedPad = () => {
     let nextStep = (currentSequencerStep + 1) % 16;
     let stepsChecked = 0;
-    console.log(nextStep, currentSequencerStep);
 
     // Look for next assigned pad, checking all 16 pads
 
@@ -249,6 +259,7 @@ export default function AudioManipulator() {
   };
 
   const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
+    // return buffer;
     const reversedBuffer = audioContextRef.current!.createBuffer(
       buffer.numberOfChannels,
       buffer.length,
@@ -346,14 +357,32 @@ export default function AudioManipulator() {
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
-    let startOffset = pauseTimeRef.current;
-    let playDuration = duration;
+    let visualStartPosition = pauseTimeRef.current;
 
+    let bufferStartOffset = effects.reverse
+      ? duration - visualStartPosition
+      : visualStartPosition;
+
+    let playDuration = duration;
     if (clipToPlay) {
-      startOffset = clipToPlay.startTime;
-      playDuration = clipToPlay.endTime;
+      if (
+        !visualStartPosition ||
+        visualStartPosition < clipToPlay.startTime ||
+        visualStartPosition > clipToPlay.endTime
+      ) {
+        bufferStartOffset = clipToPlay.startTime;
+      }
+      if (samplerMode === "sampler") {
+        playDuration = clipToPlay.endTime;
+      } else {
+        playDuration = clipToPlay.endTime;
+        if (visualStartPosition >= clipToPlay.endTime) {
+          return;
+        }
+      }
     }
 
     sourceNodeRef.current = audioContextRef.current.createBufferSource();
@@ -361,43 +390,46 @@ export default function AudioManipulator() {
     sourceNodeRef.current.playbackRate.value = effects.pitch;
 
     const ctx = audioContextRef.current;
-    const delayNode = ctx.createDelay(2);
-    const delayFeedbackGain = ctx.createGain();
-    const delayWetGain = ctx.createGain();
+    // const delayNode = ctx.createDelay(2);
+    // const delayFeedbackGain = ctx.createGain();
+    // const delayWetGain = ctx.createGain();
     const dryGain = ctx.createGain();
-    const reverbWetGain = ctx.createGain();
-    delayNodeRef.current = delayNode;
-    delayFeedbackGainRef.current = delayFeedbackGain;
+    // const reverbWetGain = ctx.createGain();
+    // delayNodeRef.current = delayNode;
+    // delayFeedbackGainRef.current = delayFeedbackGain;
 
-    delayNode.delayTime.value = effects.delayTime;
-    delayFeedbackGain.gain.value = effects.delayFeedback;
-    delayWetGain.gain.value = effects.delayMix;
+    // delayNode.delayTime.value = effects.delayTime;
+    // delayFeedbackGain.gain.value = effects.delayFeedback;
+    // delayWetGain.gain.value = effects.delayMix;
     dryGain.gain.value =
       1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-    reverbWetGain.gain.value = effects.reverbMix;
+    // reverbWetGain.gain.value = effects.reverbMix;
 
-    delayNode.connect(delayFeedbackGain);
-    delayFeedbackGain.connect(delayNode);
-    delayNode.connect(delayWetGain);
+    // delayNode.connect(delayFeedbackGain);
+    // delayFeedbackGain.connect(delayNode);
+    // delayNode.connect(delayWetGain);
 
-    const reverb = createReverb(
-      ctx,
-      effects.reverbRoomSize,
-      effects.reverbDecay
-    );
+    // const reverb = createReverb(
+    //   ctx,
+    //   effects.reverbRoomSize,
+    //   effects.reverbDecay
+    // );
 
     sourceNodeRef.current.connect(dryGain);
-    sourceNodeRef.current.connect(delayNode);
-    sourceNodeRef.current.connect(reverb.input);
+    // sourceNodeRef.current.connect(delayNode);
+    // sourceNodeRef.current.connect(reverb.input);
 
     dryGain.connect(gainNodeRef.current!);
-    delayWetGain.connect(gainNodeRef.current!);
-    reverb.output.connect(reverbWetGain);
-    reverbWetGain.connect(gainNodeRef.current!);
-
-    sourceNodeRef.current.start(0, startOffset);
+    // delayWetGain.connect(gainNodeRef.current!);
+    // reverb.output.connect(reverbWetGain);
+    // reverbWetGain.connect(gainNodeRef.current!);
+    // if (effects.reverse) {
+    //   sourceNodeRef.current.start(0, duration - startOffset);
+    // } else {
+    // }
+    sourceNodeRef.current.start(0, bufferStartOffset);
     startTimeRef.current =
-      audioContextRef.current.currentTime - startOffset / effects.pitch;
+      audioContextRef.current.currentTime - bufferStartOffset / effects.pitch;
     playbackRateRef.current = effects.pitch;
     setIsPlaying(true);
 
@@ -407,15 +439,24 @@ export default function AudioManipulator() {
           audioContextRef.current.currentTime - startTimeRef.current;
         const bufferElapsed = contextElapsed * playbackRateRef.current;
 
-        setCurrentTime(bufferElapsed);
+        const visualTime = effects.reverse
+          ? duration - bufferElapsed
+          : bufferElapsed;
+
+        setCurrentTime(visualTime);
 
         if (bufferElapsed >= playDuration) {
           if (isManuallyStoppingRef.current) {
             return;
           }
           if (isLoopingRef.current && samplerMode !== "sequencer") {
-            pauseTimeRef.current = 0;
-            playAudio();
+            if (clipToPlay) {
+              pauseTimeRef.current = clipToPlay.startTime;
+              playAudio(clipToPlay);
+            } else {
+              pauseTimeRef.current = 0;
+              playAudio();
+            }
             return;
           } else {
             setIsPlaying(false);
@@ -449,8 +490,10 @@ export default function AudioManipulator() {
   const pauseAudio = () => {
     if (sourceNodeRef.current && audioContextRef.current) {
       isManuallyStoppingRef.current = true;
-      isLoopingRef.current = false;
-      setIsLooping(false);
+      // isLoopingRef.current = false;
+      // setIsLooping(false);
+
+      // setSelectedClipId(null);
 
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -470,6 +513,12 @@ export default function AudioManipulator() {
       const contextElapsed =
         audioContextRef.current.currentTime - startTimeRef.current;
       pauseTimeRef.current = contextElapsed * playbackRateRef.current;
+      // const bufferElapsed = contextElapsed * playbackRateRef.current;
+
+      // const visualTime = effects.reverse
+      //   ? duration - bufferElapsed
+      //   : bufferElapsed;
+      // pauseTimeRef.current = visualTime;
       setIsPlaying(false);
 
       setTimeout(() => {
@@ -482,7 +531,6 @@ export default function AudioManipulator() {
     if (isPlaying) {
       pauseAudio();
     }
-    console.log("asdfasdf");
 
     setSelectedClipId(clipId);
 
@@ -491,7 +539,6 @@ export default function AudioManipulator() {
       if (clip) {
         pauseTimeRef.current = clip.startTime;
         setCurrentTime(clip.startTime);
-        console.log("asdfasdf");
         playAudio(clip);
       }
     } else {
@@ -836,8 +883,14 @@ export default function AudioManipulator() {
       animationFrameRef.current = null;
     }
 
-    pauseTimeRef.current = time;
-    setCurrentTime(time);
+    if (effects.reverse) {
+      pauseTimeRef.current = duration - time;
+      setCurrentTime(time);
+    } else {
+      pauseTimeRef.current = time;
+      setCurrentTime(time);
+    }
+
     setIsPlaying(false);
 
     if (wasPlaying) {
@@ -884,7 +937,7 @@ export default function AudioManipulator() {
   };
 
   const handleSaveProject = async () => {
-    if (!isSignedIn) {
+    if (!isSignedIn || (!isSignedIn && !hasUnsavedChanges)) {
       window.location.href = "/sign-in";
       return;
     }
@@ -911,7 +964,7 @@ export default function AudioManipulator() {
           <div>
             <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
               FOURPAGE{" "}
-              <span className="text-sm md:text-lg font-normal text-muted-foreground">
+              <span className="text-sm hidden md:inline md:text-lg font-normal text-muted-foreground">
                 Sixty Lens
               </span>
             </h1>
@@ -925,8 +978,8 @@ export default function AudioManipulator() {
                     variant={
                       hasUnsavedChanges && isSignedIn ? "default" : "outline"
                     }
+                    disabled={isSaving}
                     size="icon"
-                    disabled={isSaving || (!isSignedIn && !hasUnsavedChanges)}
                     className={`font-mono uppercase tracking-wider relative w-9 h-9 ${
                       !isSignedIn || (!hasUnsavedChanges && isSignedIn)
                         ? "bg-transparent"
@@ -975,18 +1028,10 @@ export default function AudioManipulator() {
                 <Link href="/sign-in">
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="text"
                     className="font-mono uppercase tracking-wider bg-transparent"
                   >
-                    Sign In
-                  </Button>
-                </Link>
-                <Link href="/sign-up">
-                  <Button
-                    size="sm"
-                    className="font-mono uppercase tracking-wider"
-                  >
-                    Sign Up
+                    <LogIn className="w-4 h-4" />
                   </Button>
                 </Link>
               </>
@@ -1129,6 +1174,8 @@ export default function AudioManipulator() {
                     onSeek={seekAudio}
                     clips={clips}
                     onClipsChange={setClips}
+                    onPadAssignmentsChange={setPadAssignments}
+                    pauseAudio={pauseAudio}
                   />
                 </div>
 
@@ -1168,7 +1215,7 @@ export default function AudioManipulator() {
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="outline"
-                            size="sm"
+                            size="text"
                             className="font-mono uppercase tracking-wider bg-transparent"
                             disabled={isRendering}
                           >

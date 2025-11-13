@@ -3,8 +3,14 @@
 import type React from "react";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ZoomIn, ZoomOut, Scissors } from "lucide-react";
+import { ZoomIn, ZoomOut, Scissors, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  TooltipProvider,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@radix-ui/react-tooltip";
 
 export interface Clip {
   id: string;
@@ -19,6 +25,8 @@ interface WaveformVisualizerProps {
   onSeek?: (time: number) => void;
   clips?: Clip[];
   onClipsChange?: (clips: Clip[]) => void;
+  onPadAssignmentsChange?: (assignments: (number | null)[]) => void;
+  pauseAudio: () => void;
 }
 
 export default function WaveformVisualizer({
@@ -28,6 +36,8 @@ export default function WaveformVisualizer({
   onSeek,
   clips = [],
   onClipsChange,
+  onPadAssignmentsChange,
+  pauseAudio,
 }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -147,6 +157,8 @@ export default function WaveformVisualizer({
       const clipNumber = index + 1;
       const clipWidth = clipEndX - clipStartX;
       if (clipWidth > 20) {
+        // console.log(clipNumber);
+        // TODO: need to add delete icon on top on hover instead of number and then make it delete the clip
         ctx.fillStyle = foregroundColor;
         ctx.font = "bold 12px monospace";
         ctx.textAlign = "center";
@@ -399,6 +411,7 @@ export default function WaveformVisualizer({
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    console.log("HEHEHEEHEHEH");
     if (!canvasRef.current || !onSeek) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
@@ -430,6 +443,7 @@ export default function WaveformVisualizer({
     setLastClickTime(now);
     setIsDragging(true);
     handleSeek(e);
+    // pauseAudio();
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -720,18 +734,13 @@ export default function WaveformVisualizer({
     setZoom(newZoom);
   };
 
-  // const handleZoomIn = () => {
-  //   setZoom((prev) => Math.min(prev + 0.5, 20))
-  // }
-
-  // const handleZoomOut = () => {
-  //   setZoom((prev) => Math.max(prev - 0.5, 1))
-  // }
-
   const handleClearClips = () => {
     if (onClipsChange) {
       onClipsChange([]);
     }
+    // if (onPadAssignmentsChange) {
+    //   onPadAssignmentsChange([]);
+    // }
   };
 
   return (
@@ -744,9 +753,18 @@ export default function WaveformVisualizer({
             size="sm"
             className="font-mono bg-background/80 backdrop-blur-sm h-8 px-2 text-xs uppercase tracking-wider"
           >
-            <Scissors className="w-3 h-3 mr-1" />
-            Clear ({clips.length})
+            <Trash2 className="w-3 h-3" />
           </Button>
+          // <TooltipProvider>
+          //   <Tooltip>
+          //     <TooltipTrigger asChild>
+
+          //     </TooltipTrigger>
+          //     <TooltipContent className="font-mono text-xs">
+          //       {"Delete All Clips"}
+          //     </TooltipContent>
+          //   </Tooltip>
+          // </TooltipProvider>
         )}
         <Button
           onClick={handleZoomOut}

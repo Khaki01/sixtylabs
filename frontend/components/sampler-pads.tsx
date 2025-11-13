@@ -91,10 +91,12 @@ export default function SamplerPads({
   // Keyboard controls for sampler mode (realtime pad triggering)
   useEffect(() => {
     if (samplerMode !== "sampler") {
+      return;
+    }
+    if (!clips) {
       if (onClipSelect) {
         onClipSelect(null);
       }
-      return;
     }
     setClickedPadIndex(null);
 
@@ -215,7 +217,12 @@ export default function SamplerPads({
             </button>
             <button
               onClick={() => {
-                if (setSamplerMode) setSamplerMode("sequencer");
+                if (setSamplerMode) {
+                  setSamplerMode("sequencer");
+                  if (onClipSelect) {
+                    onClipSelect(null);
+                  }
+                }
               }}
               className={`
                 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors

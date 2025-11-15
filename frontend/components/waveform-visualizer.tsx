@@ -3,7 +3,7 @@
 import type React from "react";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ZoomIn, ZoomOut, Scissors, Trash2 } from "lucide-react";
+import { ZoomIn, ZoomOut, Scissors, Trash2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import {
   TooltipProvider,
@@ -25,7 +25,6 @@ interface WaveformVisualizerProps {
   onSeek?: (time: number) => void;
   clips?: Clip[];
   onClipsChange?: (clips: Clip[]) => void;
-  onPadAssignmentsChange?: (assignments: (number | null)[]) => void;
   pauseAudio: () => void;
 }
 
@@ -36,7 +35,6 @@ export default function WaveformVisualizer({
   onSeek,
   clips = [],
   onClipsChange,
-  onPadAssignmentsChange,
   pauseAudio,
 }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -115,8 +113,7 @@ export default function WaveformVisualizer({
         ((clip.endTime - visibleStartTime) / visibleDuration) * width
       );
 
-      // Light gray fill
-      ctx.fillStyle = "rgba(128, 128, 128, 0.15)";
+      ctx.fillStyle = "rgba(128, 128, 128, 0.25)";
       ctx.fillRect(clipStartX, 0, clipEndX - clipStartX, height);
 
       const foregroundColor =
@@ -152,19 +149,6 @@ export default function WaveformVisualizer({
       ctx.lineTo(clipEndX, height);
       ctx.stroke();
       ctx.setLineDash([]);
-
-      // Draw clip number
-      const clipNumber = index + 1;
-      const clipWidth = clipEndX - clipStartX;
-      if (clipWidth > 20) {
-        // console.log(clipNumber);
-        // TODO: need to add delete icon on top on hover instead of number and then make it delete the clip
-        ctx.fillStyle = foregroundColor;
-        ctx.font = "bold 12px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        ctx.fillText(`${clipNumber}`, clipStartX + clipWidth / 2, 4);
-      }
     });
 
     if (
@@ -314,8 +298,7 @@ export default function WaveformVisualizer({
             (newVisibleSamples / totalSamples) * duration;
           const newVisibleStartTime =
             timeAtMouse - mousePercentage * newVisibleDuration;
-          const newStartSample =
-            (newVisibleStartTime / duration) * totalSamples;
+          const newStartSample = (newVisibleStartTime / duration) * totalSamples;
           const maxStartSample = totalSamples - newVisibleSamples;
           const newScrollOffset = Math.max(
             0,
@@ -515,7 +498,7 @@ export default function WaveformVisualizer({
           startTime,
           endTime,
         };
-        onClipsChange([...clips, newClip]);
+        onClipsChange([newClip]);
       }
 
       setIsCreatingClip(false);
@@ -636,7 +619,7 @@ export default function WaveformVisualizer({
           startTime,
           endTime,
         };
-        onClipsChange([...clips, newClip]);
+        onClipsChange([newClip]);
       }
 
       setIsCreatingClip(false);
@@ -738,9 +721,6 @@ export default function WaveformVisualizer({
     if (onClipsChange) {
       onClipsChange([]);
     }
-    // if (onPadAssignmentsChange) {
-    //   onPadAssignmentsChange([]);
-    // }
   };
 
   return (
@@ -755,16 +735,6 @@ export default function WaveformVisualizer({
           >
             <Trash2 className="w-3 h-3" />
           </Button>
-          // <TooltipProvider>
-          //   <Tooltip>
-          //     <TooltipTrigger asChild>
-
-          //     </TooltipTrigger>
-          //     <TooltipContent className="font-mono text-xs">
-          //       {"Delete All Clips"}
-          //     </TooltipContent>
-          //   </Tooltip>
-          // </TooltipProvider>
         )}
         <Button
           onClick={handleZoomOut}

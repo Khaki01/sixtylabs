@@ -19,13 +19,12 @@ import {
   Lock,
   Loader2,
   Save,
-  LogIn,
+  User,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
 import EffectsPanel from "./effects-panel";
 import FeedbackDialog from "./feedback-dialog";
-import SamplerPads from "./sampler-pads";
 import Link from "next/link";
 import type { Clip } from "./waveform-visualizer";
 import { isAuthenticated } from "@/lib/auth";
@@ -75,22 +74,13 @@ export default function AudioManipulator() {
   const [isRendering, setIsRendering] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
-
-  // CHANGED: Added sequencer state
-  const [samplerMode, setSamplerMode] = useState<"sequencer" | "sampler">(
-    "sampler"
-  );
-  const [isPadsPlaying, setIsPadsPlaying] = useState(false);
-  const [currentSequencerStep, setCurrentSequencerStep] = useState(0);
-  const [padAssignments, setPadAssignments] = useState<(number | null)[]>(
-    Array(16).fill(null)
-  );
-
-  const [clips, setClips] = useState<Clip[]>([]);
+  const [clip, setClip] = useState<Clip | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
+  const lastPitchChangeTimeRef = useRef<number>(0);
+  const bufferPositionAtLastChangeRef = useRef<number>(0);
   const pauseTimeRef = useRef<number>(0);
   const playbackRateRef = useRef<number>(1);
   const animationFrameRef = useRef<number | null>(null);
@@ -101,7 +91,7 @@ export default function AudioManipulator() {
   const gainNodeRef = useRef<GainNode | null>(null);
 
   const [effects, setEffects] = useState({
-    volume: 0.8,
+    volume: 1.0,
     pitch: 1,
     reverse: false,
     delayTime: 0.3,
@@ -129,12 +119,6 @@ export default function AudioManipulator() {
   }, []);
 
   useEffect(() => {
-    if (clips.length === 0) {
-      setPadAssignments(Array(16).fill(null));
-    }
-  }, [clips]);
-
-  useEffect(() => {
     audioContextRef.current = new AudioContext();
     const ctx = audioContextRef.current;
 
@@ -149,6 +133,7 @@ export default function AudioManipulator() {
     };
   }, []);
 
+  // effets handlers
   useEffect(() => {
     if (gainNodeRef.current) {
       gainNodeRef.current.gain.setTargetAtTime(
@@ -160,14 +145,20 @@ export default function AudioManipulator() {
   }, [effects.volume]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (isPlaying && sourceNodeRef.current) {
-        pauseAudio();
-        playAudio();
-      }
-    }, 150);
+    if (sourceNodeRef.current && audioContextRef.current && isPlaying) {
+      const contextElapsed =
+        audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
+      const bufferElapsed = contextElapsed * playbackRateRef.current;
+      bufferPositionAtLastChangeRef.current =
+        bufferPositionAtLastChangeRef.current + bufferElapsed;
+      lastPitchChangeTimeRef.current = audioContextRef.current.currentTime;
 
-    return () => clearTimeout(timer);
+      sourceNodeRef.current.playbackRate.setValueAtTime(
+        effects.pitch,
+        audioContextRef.current.currentTime
+      );
+      playbackRateRef.current = effects.pitch;
+    }
   }, [effects.pitch]);
 
   useEffect(() => {
@@ -175,12 +166,8 @@ export default function AudioManipulator() {
 
     if (effects.reverse) {
       const reversed = reverseAudioBuffer(audioBuffer);
-      // pauseTimeRef.current = duration - pauseTimeRef.current;
-      // setCurrentTime(pauseTimeRef.current);
       setProcessedBuffer(reversed);
     } else {
-      // pauseTimeRef.current = duration - pauseTimeRef.current;
-      // setCurrentTime(pauseTimeRef.current);
       setProcessedBuffer(audioBuffer);
     }
   }, [effects.reverse, audioBuffer]);
@@ -192,74 +179,7 @@ export default function AudioManipulator() {
     }
   }, [processedBuffer]);
 
-  // CHANGED: Replaced broken useEffect with proper sequencer logic
-  // This plays the clip assigned to the current sequencer step
-  useEffect(() => {
-    if (samplerMode !== "sequencer" || !isPadsPlaying) return;
-
-    const clipIndex = padAssignments[currentSequencerStep];
-
-    if (clipIndex !== null && clipIndex < clips.length) {
-      const clip = clips[clipIndex];
-      setSelectedClipId(clip.id);
-      pauseTimeRef.current = clip.startTime;
-      setCurrentTime(clip.startTime);
-      playAudio(clip);
-    } else {
-      // No clip assigned to this pad, skip to next pad with a clip
-      findNextAssignedPad();
-    }
-  }, [currentSequencerStep, isPadsPlaying, samplerMode]);
-
-  // CHANGED: Auto-advance to next step when clip finishes
-  useEffect(() => {
-    if (samplerMode !== "sequencer" || !isPadsPlaying) return;
-
-    if (!isPlaying && selectedClipId) {
-      setTimeout(() => {
-        findNextAssignedPad();
-      }, 100);
-    }
-  }, [isPlaying, samplerMode, isPadsPlaying, selectedClipId]);
-
-  // Helper function to find next pad with a clip assigned
-  const findNextAssignedPad = () => {
-    let nextStep = (currentSequencerStep + 1) % 16;
-    let stepsChecked = 0;
-
-    // Look for next assigned pad, checking all 16 pads
-
-    while (stepsChecked < 16) {
-      const clipIndex = padAssignments[nextStep];
-
-      if (clipIndex !== null && clipIndex < clips.length) {
-        // Found a pad with a clip
-        setCurrentSequencerStep(nextStep);
-        return;
-      }
-
-      nextStep = (nextStep + 1) % 16;
-      if (!isLoopingRef.current && nextStep < currentSequencerStep) {
-        break;
-      }
-      stepsChecked++;
-    }
-
-    // No clips assigned anywhere, stop the sequencer
-    setIsPadsPlaying(false);
-    setSelectedClipId(null);
-    setCurrentSequencerStep(0);
-    if (sourceNodeRef && sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    setCurrentTime(0);
-    pauseTimeRef.current = 0;
-    pauseAudio();
-  };
-
   const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
-    // return buffer;
     const reversedBuffer = audioContextRef.current!.createBuffer(
       buffer.numberOfChannels,
       buffer.length,
@@ -286,7 +206,6 @@ export default function AudioManipulator() {
     const file = e.target.files?.[0];
 
     if (!file) {
-      console.log("[v0] No file selected");
       return;
     }
 
@@ -302,21 +221,12 @@ export default function AudioManipulator() {
       animationFrameRef.current = null;
     }
 
-    console.log("[v0] File selected:", file.name, file.type, file.size);
     setAudioFile(file);
 
     try {
-      console.log("[v0] Reading file as array buffer...");
       const arrayBuffer = await file.arrayBuffer();
-      console.log("[v0] Array buffer created, size:", arrayBuffer.byteLength);
-
-      console.log("[v0] Decoding audio data...");
       const buffer = await audioContextRef.current!.decodeAudioData(
         arrayBuffer
-      );
-      console.log(
-        "[v0] Audio decoded successfully, duration:",
-        buffer.duration
       );
 
       setAudioBuffer(buffer);
@@ -325,23 +235,20 @@ export default function AudioManipulator() {
       setCurrentTime(0);
       pauseTimeRef.current = 0;
       setIsPlaying(false);
-      setClips([]);
-
-      console.log("[v0] Audio file loaded successfully");
+      setClip(null);
     } catch (error) {
-      console.error("[v0] Error loading audio file:", error);
+      console.error("Error loading audio file:", error);
       alert(`Error loading audio file: ${error}`);
     }
   };
 
   const handleSampleSelect = (sample: (typeof SAMPLE_LIBRARY)[0]) => {
-    console.log("[v0] Sample selected:", sample);
     setIsSampleLibraryOpen(false);
   };
 
-  const playAudio = (clip?: Clip) => {
+  const playAudio = (clipToPlay?: Clip) => {
     if (!processedBuffer || !audioContextRef.current) return;
-    const clipToPlay = clip ?? clips.find((c) => c.id === selectedClipId);
+    const clipForPlayback = clipToPlay ?? clip;
 
     if (sourceNodeRef.current) {
       sourceNodeRef.current.stop();
@@ -367,22 +274,17 @@ export default function AudioManipulator() {
       : visualStartPosition;
 
     let playDuration = duration;
-    if (clipToPlay) {
+    if (clipForPlayback) {
+      // If not already positioned within the clip, start from clip's beginning
       if (
         !visualStartPosition ||
-        visualStartPosition < clipToPlay.startTime ||
-        visualStartPosition > clipToPlay.endTime
+        visualStartPosition < clipForPlayback.startTime ||
+        visualStartPosition > clipForPlayback.endTime
       ) {
-        bufferStartOffset = clipToPlay.startTime;
+        bufferStartOffset = clipForPlayback.startTime;
       }
-      if (samplerMode === "sampler") {
-        playDuration = clipToPlay.endTime;
-      } else {
-        playDuration = clipToPlay.endTime;
-        if (visualStartPosition >= clipToPlay.endTime) {
-          return;
-        }
-      }
+      // Calculate the actual duration of the clip
+      playDuration = clipForPlayback.endTime - clipForPlayback.startTime;
     }
 
     sourceNodeRef.current = audioContextRef.current.createBufferSource();
@@ -390,58 +292,34 @@ export default function AudioManipulator() {
     sourceNodeRef.current.playbackRate.value = effects.pitch;
 
     const ctx = audioContextRef.current;
-    // const delayNode = ctx.createDelay(2);
-    // const delayFeedbackGain = ctx.createGain();
-    // const delayWetGain = ctx.createGain();
     const dryGain = ctx.createGain();
-    // const reverbWetGain = ctx.createGain();
-    // delayNodeRef.current = delayNode;
-    // delayFeedbackGainRef.current = delayFeedbackGain;
 
-    // delayNode.delayTime.value = effects.delayTime;
-    // delayFeedbackGain.gain.value = effects.delayFeedback;
-    // delayWetGain.gain.value = effects.delayMix;
     dryGain.gain.value =
       1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-    // reverbWetGain.gain.value = effects.reverbMix;
-
-    // delayNode.connect(delayFeedbackGain);
-    // delayFeedbackGain.connect(delayNode);
-    // delayNode.connect(delayWetGain);
-
-    // const reverb = createReverb(
-    //   ctx,
-    //   effects.reverbRoomSize,
-    //   effects.reverbDecay
-    // );
 
     sourceNodeRef.current.connect(dryGain);
-    // sourceNodeRef.current.connect(delayNode);
-    // sourceNodeRef.current.connect(reverb.input);
 
     dryGain.connect(gainNodeRef.current!);
-    // delayWetGain.connect(gainNodeRef.current!);
-    // reverb.output.connect(reverbWetGain);
-    // reverbWetGain.connect(gainNodeRef.current!);
-    // if (effects.reverse) {
-    //   sourceNodeRef.current.start(0, duration - startOffset);
-    // } else {
-    // }
+
     sourceNodeRef.current.start(0, bufferStartOffset);
-    startTimeRef.current =
-      audioContextRef.current.currentTime - bufferStartOffset / effects.pitch;
+    startTimeRef.current = audioContextRef.current.currentTime;
+    lastPitchChangeTimeRef.current = audioContextRef.current.currentTime;
+    bufferPositionAtLastChangeRef.current = bufferStartOffset;
     playbackRateRef.current = effects.pitch;
     setIsPlaying(true);
 
     const updateTime = () => {
       if (audioContextRef.current && sourceNodeRef.current) {
         const contextElapsed =
-          audioContextRef.current.currentTime - startTimeRef.current;
+          audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
         const bufferElapsed = contextElapsed * playbackRateRef.current;
+        const currentBufferPosition =
+          bufferPositionAtLastChangeRef.current + bufferElapsed;
 
+        // update time forward/backward based on reverse effect
         const visualTime = effects.reverse
-          ? duration - bufferElapsed
-          : bufferElapsed;
+          ? duration - currentBufferPosition
+          : currentBufferPosition;
 
         setCurrentTime(visualTime);
 
@@ -449,10 +327,10 @@ export default function AudioManipulator() {
           if (isManuallyStoppingRef.current) {
             return;
           }
-          if (isLoopingRef.current && samplerMode !== "sequencer") {
-            if (clipToPlay) {
-              pauseTimeRef.current = clipToPlay.startTime;
-              playAudio(clipToPlay);
+          if (isLoopingRef.current) {
+            if (clipForPlayback) {
+              pauseTimeRef.current = clipForPlayback.startTime;
+              playAudio(clipForPlayback);
             } else {
               pauseTimeRef.current = 0;
               playAudio();
@@ -469,14 +347,16 @@ export default function AudioManipulator() {
               delayFeedbackGainRef.current.disconnect();
               delayFeedbackGainRef.current = null;
             }
-            if (samplerMode !== "sequencer") {
-              sourceNodeRef.current.stop();
-              sourceNodeRef.current.disconnect();
-              setSelectedClipId(null);
+            sourceNodeRef.current.stop();
+            sourceNodeRef.current.disconnect();
+            setSelectedClipId(null);
+            if (clipForPlayback) {
+              setCurrentTime(clipForPlayback.startTime);
+              pauseTimeRef.current = clipForPlayback.startTime;
+            } else {
               setCurrentTime(0);
               pauseTimeRef.current = 0;
             }
-
             return;
           }
         }
@@ -490,10 +370,6 @@ export default function AudioManipulator() {
   const pauseAudio = () => {
     if (sourceNodeRef.current && audioContextRef.current) {
       isManuallyStoppingRef.current = true;
-      // isLoopingRef.current = false;
-      // setIsLooping(false);
-
-      // setSelectedClipId(null);
 
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -511,60 +387,24 @@ export default function AudioManipulator() {
         delayFeedbackGainRef.current = null;
       }
       const contextElapsed =
-        audioContextRef.current.currentTime - startTimeRef.current;
-      pauseTimeRef.current = contextElapsed * playbackRateRef.current;
-      // const bufferElapsed = contextElapsed * playbackRateRef.current;
+        audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
+      const bufferElapsed = contextElapsed * playbackRateRef.current;
+      const currentBufferPosition =
+        bufferPositionAtLastChangeRef.current + bufferElapsed;
 
-      // const visualTime = effects.reverse
-      //   ? duration - bufferElapsed
-      //   : bufferElapsed;
-      // pauseTimeRef.current = visualTime;
+      const visualTime = effects.reverse
+        ? duration - currentBufferPosition
+        : currentBufferPosition;
+
+      setCurrentTime(visualTime);
+      pauseTimeRef.current = visualTime;
+
       setIsPlaying(false);
 
       setTimeout(() => {
         isManuallyStoppingRef.current = false;
       }, 100);
     }
-  };
-
-  const handleClipSelect = (clipId: string | null) => {
-    if (isPlaying) {
-      pauseAudio();
-    }
-
-    setSelectedClipId(clipId);
-
-    if (clipId) {
-      const clip = clips.find((c) => c.id === clipId);
-      if (clip) {
-        pauseTimeRef.current = clip.startTime;
-        setCurrentTime(clip.startTime);
-        playAudio(clip);
-      }
-    } else {
-      pauseTimeRef.current = 0;
-      setCurrentTime(0);
-      pauseAudio();
-    }
-  };
-
-  // CHANGED: Added sequencer control handlers
-  const handleSequencerPlayPause = () => {
-    if (isPadsPlaying) {
-      setIsPadsPlaying(false);
-      pauseAudio();
-    } else {
-      setIsPadsPlaying(true);
-    }
-  };
-
-  const handleSequencerReset = () => {
-    setIsPadsPlaying(false);
-    setCurrentSequencerStep(0);
-    pauseAudio();
-    setSelectedClipId(null);
-    pauseTimeRef.current = 0;
-    setCurrentTime(0);
   };
 
   const resetAudio = () => {
@@ -582,14 +422,10 @@ export default function AudioManipulator() {
   };
 
   const togglePlayPause = () => {
-    if (samplerMode == "sequencer") {
-      handleSequencerPlayPause();
+    if (isPlaying) {
+      pauseAudio();
     } else {
-      if (isPlaying) {
-        pauseAudio();
-      } else {
-        playAudio();
-      }
+      playAudio();
     }
   };
 
@@ -663,158 +499,43 @@ export default function AudioManipulator() {
   };
 
   const downloadClips = async () => {
-    if (!processedBuffer || clips.length === 0) return;
+    if (!processedBuffer || !clip) return;
 
     setIsRendering(true);
 
     try {
-      for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i];
+      const startSample = Math.floor(
+        clip.startTime * processedBuffer.sampleRate
+      );
+      const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
+      const clipLength = endSample - startSample;
 
-        const startSample = Math.floor(
-          clip.startTime * processedBuffer.sampleRate
-        );
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-        const clipLength = endSample - startSample;
-
-        const clipBuffer = audioContextRef.current!.createBuffer(
-          processedBuffer.numberOfChannels,
-          clipLength,
-          processedBuffer.sampleRate
-        );
-
-        for (
-          let channel = 0;
-          channel < processedBuffer.numberOfChannels;
-          channel++
-        ) {
-          const sourceData = processedBuffer.getChannelData(channel);
-          const clipData = clipBuffer.getChannelData(channel);
-          for (let j = 0; j < clipLength; j++) {
-            clipData[j] = sourceData[startSample + j];
-          }
-        }
-
-        const offlineCtx = new OfflineAudioContext(
-          clipBuffer.numberOfChannels,
-          clipBuffer.length,
-          clipBuffer.sampleRate
-        );
-
-        const source = offlineCtx.createBufferSource();
-        source.buffer = clipBuffer;
-        source.playbackRate.value = effects.pitch;
-
-        const delayNode = offlineCtx.createDelay(2);
-        const delayFeedbackGain = offlineCtx.createGain();
-        const delayWetGain = offlineCtx.createGain();
-        const dryGain = offlineCtx.createGain();
-        const reverbWetGain = offlineCtx.createGain();
-
-        delayNode.delayTime.value = effects.delayTime;
-        delayFeedbackGain.gain.value = effects.delayFeedback;
-        delayWetGain.gain.value = effects.delayMix;
-        dryGain.gain.value =
-          1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-        reverbWetGain.gain.value = effects.reverbMix;
-
-        delayNode.connect(delayFeedbackGain);
-        delayFeedbackGain.connect(delayNode);
-        delayNode.connect(delayWetGain);
-
-        const reverb = createReverb(
-          offlineCtx,
-          effects.reverbRoomSize,
-          effects.reverbDecay
-        );
-
-        source.connect(dryGain);
-        source.connect(delayNode);
-        source.connect(reverb.input);
-
-        dryGain.connect(offlineCtx.destination);
-        delayWetGain.connect(offlineCtx.destination);
-        reverb.output.connect(reverbWetGain);
-        reverbWetGain.connect(offlineCtx.destination);
-
-        source.start(0);
-        const renderedBuffer = await offlineCtx.startRendering();
-
-        const wavBlob = audioBufferToWav(renderedBuffer);
-        const url = URL.createObjectURL(wavBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `fourpage-clip-${i + 1}-${Date.now()}.wav`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-
-      setIsRendering(false);
-    } catch (error) {
-      console.error("Error rendering clips:", error);
-      alert("Error processing clips for download");
-      setIsRendering(false);
-    }
-  };
-
-  const downloadSequence = async () => {
-    if (!processedBuffer || clips.length === 0) return;
-
-    setIsRendering(true);
-
-    try {
-      const sortedClips = [...clips].sort((a, b) => a.startTime - b.startTime);
-
-      let totalLength = 0;
-      for (const clip of sortedClips) {
-        const startSample = Math.floor(
-          clip.startTime * processedBuffer.sampleRate
-        );
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-        totalLength += endSample - startSample;
-      }
-
-      const sequenceBuffer = audioContextRef.current!.createBuffer(
+      const clipBuffer = audioContextRef.current!.createBuffer(
         processedBuffer.numberOfChannels,
-        totalLength,
+        clipLength,
         processedBuffer.sampleRate
       );
 
-      let currentPosition = 0;
-      for (const clip of sortedClips) {
-        const startSample = Math.floor(
-          clip.startTime * processedBuffer.sampleRate
-        );
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-        const clipLength = endSample - startSample;
-
-        for (
-          let channel = 0;
-          channel < processedBuffer.numberOfChannels;
-          channel++
-        ) {
-          const sourceData = processedBuffer.getChannelData(channel);
-          const sequenceData = sequenceBuffer.getChannelData(channel);
-          for (let j = 0; j < clipLength; j++) {
-            sequenceData[currentPosition + j] = sourceData[startSample + j];
-          }
+      for (
+        let channel = 0;
+        channel < processedBuffer.numberOfChannels;
+        channel++
+      ) {
+        const sourceData = processedBuffer.getChannelData(channel);
+        const clipData = clipBuffer.getChannelData(channel);
+        for (let j = 0; j < clipLength; j++) {
+          clipData[j] = sourceData[startSample + j];
         }
-
-        currentPosition += clipLength;
       }
 
       const offlineCtx = new OfflineAudioContext(
-        sequenceBuffer.numberOfChannels,
-        sequenceBuffer.length,
-        sequenceBuffer.sampleRate
+        clipBuffer.numberOfChannels,
+        clipBuffer.length,
+        clipBuffer.sampleRate
       );
 
       const source = offlineCtx.createBufferSource();
-      source.buffer = sequenceBuffer;
+      source.buffer = clipBuffer;
       source.playbackRate.value = effects.pitch;
 
       const delayNode = offlineCtx.createDelay(2);
@@ -856,7 +577,7 @@ export default function AudioManipulator() {
       const url = URL.createObjectURL(wavBlob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `fourpage-sequence-${Date.now()}.wav`;
+      a.download = `fourpage-trimmed-${Date.now()}.wav`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -864,8 +585,8 @@ export default function AudioManipulator() {
 
       setIsRendering(false);
     } catch (error) {
-      console.error("Error rendering sequence:", error);
-      alert("Error processing sequence for download");
+      console.error("Error rendering clip:", error);
+      alert("Error processing clip for download");
       setIsRendering(false);
     }
   };
@@ -950,7 +671,7 @@ export default function AudioManipulator() {
       setHasUnsavedChanges(false);
       setLastSavedTime(new Date());
     } catch (error) {
-      console.error("[v0] Error saving project:", error);
+      console.error("Error saving project:", error);
       alert("Error saving project");
     } finally {
       setIsSaving(false);
@@ -1031,7 +752,7 @@ export default function AudioManipulator() {
                     size="text"
                     className="font-mono uppercase tracking-wider bg-transparent"
                   >
-                    <LogIn className="w-4 h-4" />
+                    <User className="w-4 h-4" />
                   </Button>
                 </Link>
               </>
@@ -1172,9 +893,8 @@ export default function AudioManipulator() {
                     currentTime={currentTime}
                     duration={duration}
                     onSeek={seekAudio}
-                    clips={clips}
-                    onClipsChange={setClips}
-                    onPadAssignmentsChange={setPadAssignments}
+                    clips={clip ? [clip] : []}
+                    onClipsChange={(clips) => setClip(clips[0] || null)}
                     pauseAudio={pauseAudio}
                   />
                 </div>
@@ -1231,16 +951,12 @@ export default function AudioManipulator() {
                             <Download className="w-4 h-4 mr-2" />
                             Full Audio
                           </DropdownMenuItem>
-                          {clips.length > 0 && (
+                          {clip && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={downloadClips}>
                                 <Download className="w-4 h-4 mr-2" />
-                                Clips ({clips.length})
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={downloadSequence}>
-                                <Download className="w-4 h-4 mr-2" />
-                                Sequence
+                                Trimmed
                               </DropdownMenuItem>
                             </>
                           )}
@@ -1250,8 +966,7 @@ export default function AudioManipulator() {
                     <div className="font-mono text-xs uppercase tracking-wider">
                       {selectedClipId && (
                         <span className="text-muted-foreground mr-2">
-                          Clip{" "}
-                          {clips.findIndex((c) => c.id === selectedClipId) + 1}
+                          Clip {clip ? 1 : 0}
                         </span>
                       )}
                       {formatTime(currentTime)} / {formatTime(duration)}
@@ -1275,31 +990,6 @@ export default function AudioManipulator() {
                   </div>
                 </div>
               </div>
-
-              {/* CHANGED: Updated props to pass sequencer state */}
-              <SamplerPads
-                audioBuffer={audioBuffer}
-                clips={clips}
-                selectedClipId={selectedClipId}
-                onClipSelect={handleClipSelect}
-                isPlaying={isPlaying}
-                samplerMode={samplerMode}
-                setSamplerMode={setSamplerMode}
-                isPadsPlaying={isPadsPlaying}
-                onSequencerPlayPause={handleSequencerPlayPause}
-                onSequencerReset={handleSequencerReset}
-                currentSequencerStep={currentSequencerStep}
-                padAssignments={padAssignments}
-                onPadAssignmentsChange={setPadAssignments}
-                // onPlayStateChange={(playing) => {
-                //   console.log("CLICICIC");
-                //   if (playing) {
-                //     playAudio();
-                //   } else {
-                //     pauseAudio();
-                //   }
-                // }}
-              />
             </>
           )}
         </div>

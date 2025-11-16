@@ -170,11 +170,20 @@ export default function AudioManipulator() {
     } else {
       setProcessedBuffer(audioBuffer);
     }
+    if (clip) {
+      setClip({
+        ...clip,
+        startTime: duration - clip.endTime,
+        endTime: duration - clip.startTime,
+      });
+    }
   }, [effects.reverse, audioBuffer]);
 
   useEffect(() => {
     if (isPlaying) {
       pauseAudio();
+      // since audio buffer is changed (flipped), need to flip the current node it is paused at
+      pauseTimeRef.current = duration - pauseTimeRef.current;
       setTimeout(() => playAudio(), 50);
     }
   }, [processedBuffer]);
@@ -267,24 +276,19 @@ export default function AudioManipulator() {
       animationFrameRef.current = null;
     }
 
-    let visualStartPosition = pauseTimeRef.current;
-
-    let bufferStartOffset = effects.reverse
-      ? duration - visualStartPosition
-      : visualStartPosition;
+    let bufferStartOffset = pauseTimeRef.current;
 
     let playDuration = duration;
     if (clipForPlayback) {
-      // If not already positioned within the clip, start from clip's beginning
       if (
-        !visualStartPosition ||
-        visualStartPosition < clipForPlayback.startTime ||
-        visualStartPosition > clipForPlayback.endTime
+        !bufferStartOffset ||
+        bufferStartOffset < clipForPlayback.startTime ||
+        bufferStartOffset > clipForPlayback.endTime
       ) {
         bufferStartOffset = clipForPlayback.startTime;
       }
       // Calculate the actual duration of the clip
-      playDuration = clipForPlayback.endTime - clipForPlayback.startTime;
+      playDuration = clipForPlayback.endTime - bufferStartOffset;
     }
 
     sourceNodeRef.current = audioContextRef.current.createBufferSource();
@@ -392,12 +396,7 @@ export default function AudioManipulator() {
       const currentBufferPosition =
         bufferPositionAtLastChangeRef.current + bufferElapsed;
 
-      const visualTime = effects.reverse
-        ? duration - currentBufferPosition
-        : currentBufferPosition;
-
-      setCurrentTime(visualTime);
-      pauseTimeRef.current = visualTime;
+      pauseTimeRef.current = currentBufferPosition;
 
       setIsPlaying(false);
 

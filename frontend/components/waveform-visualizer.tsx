@@ -3,7 +3,7 @@
 import type React from "react";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ZoomIn, ZoomOut, Scissors, Trash2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Scissors, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   TooltipProvider,
@@ -16,6 +16,8 @@ export interface Clip {
   id: string;
   startTime: number;
   endTime: number;
+  visualStartTime: number;
+  visualEndTime: number;
 }
 
 interface WaveformVisualizerProps {
@@ -101,16 +103,19 @@ export default function WaveformVisualizer({
     const visibleDuration = visibleEndTime - visibleStartTime;
 
     clips.forEach((clip, index) => {
-      if (clip.endTime < visibleStartTime || clip.startTime > visibleEndTime)
+      if (
+        clip.visualEndTime < visibleStartTime ||
+        clip.visualStartTime > visibleEndTime
+      )
         return;
 
       const clipStartX = Math.max(
         0,
-        ((clip.startTime - visibleStartTime) / visibleDuration) * width
+        ((clip.visualStartTime - visibleStartTime) / visibleDuration) * width
       );
       const clipEndX = Math.min(
         width,
-        ((clip.endTime - visibleStartTime) / visibleDuration) * width
+        ((clip.visualEndTime - visibleStartTime) / visibleDuration) * width
       );
 
       ctx.fillStyle = "rgba(128, 128, 128, 0.25)";
@@ -298,7 +303,8 @@ export default function WaveformVisualizer({
             (newVisibleSamples / totalSamples) * duration;
           const newVisibleStartTime =
             timeAtMouse - mousePercentage * newVisibleDuration;
-          const newStartSample = (newVisibleStartTime / duration) * totalSamples;
+          const newStartSample =
+            (newVisibleStartTime / duration) * totalSamples;
           const maxStartSample = totalSamples - newVisibleSamples;
           const newScrollOffset = Math.max(
             0,
@@ -370,16 +376,20 @@ export default function WaveformVisualizer({
     const edgeThreshold = 8; // pixels
 
     for (const clip of clips) {
-      if (clip.endTime < visibleStartTime || clip.startTime > visibleEndTime)
+      if (
+        clip.visualEndTime < visibleStartTime ||
+        clip.visualStartTime > visibleEndTime
+      )
         continue;
 
       const clipStartX = Math.max(
         0,
-        ((clip.startTime - visibleStartTime) / visibleDuration) * rect.width
+        ((clip.visualStartTime - visibleStartTime) / visibleDuration) *
+          rect.width
       );
       const clipEndX = Math.min(
         rect.width,
-        ((clip.endTime - visibleStartTime) / visibleDuration) * rect.width
+        ((clip.visualEndTime - visibleStartTime) / visibleDuration) * rect.width
       );
 
       if (Math.abs(x - clipStartX) < edgeThreshold) {
@@ -444,12 +454,14 @@ export default function WaveformVisualizer({
             return {
               ...clip,
               startTime: Math.min(newTime, clip.endTime - 0.1),
+              visualStartTime: Math.min(newTime, clip.visualEndTime - 0.1),
             };
           } else {
             // Ensure end doesn't go before start (leave at least 0.1s)
             return {
               ...clip,
               endTime: Math.max(newTime, clip.startTime + 0.1),
+              visualEndTime: Math.max(newTime, clip.visualStartTime + 0.1),
             };
           }
         }
@@ -495,8 +507,10 @@ export default function WaveformVisualizer({
       if (endTime - startTime > 0.1) {
         const newClip: Clip = {
           id: `clip-${Date.now()}`,
-          startTime,
-          endTime,
+          startTime: startTime,
+          endTime: endTime,
+          visualStartTime: startTime,
+          visualEndTime: endTime,
         };
         onClipsChange([newClip]);
       }
@@ -577,11 +591,13 @@ export default function WaveformVisualizer({
             return {
               ...clip,
               startTime: Math.min(newTime, clip.endTime - 0.1),
+              visualStartTime: Math.min(newTime, clip.visualEndTime - 0.1),
             };
           } else {
             return {
               ...clip,
               endTime: Math.max(newTime, clip.startTime + 0.1),
+              visualEndTime: Math.max(newTime, clip.visualStartTime + 0.1),
             };
           }
         }
@@ -616,8 +632,10 @@ export default function WaveformVisualizer({
       if (endTime - startTime > 0.1) {
         const newClip: Clip = {
           id: `clip-${Date.now()}`,
-          startTime,
-          endTime,
+          startTime: startTime,
+          endTime: endTime,
+          visualStartTime: startTime,
+          visualEndTime: endTime,
         };
         onClipsChange([newClip]);
       }

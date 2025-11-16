@@ -23,6 +23,7 @@ export interface Clip {
 interface WaveformVisualizerProps {
   audioBuffer: AudioBuffer | null;
   currentTime: number;
+  isReversed: boolean;
   duration: number;
   onSeek?: (time: number) => void;
   clips?: Clip[];
@@ -33,6 +34,7 @@ interface WaveformVisualizerProps {
 export default function WaveformVisualizer({
   audioBuffer,
   currentTime,
+  isReversed,
   duration,
   onSeek,
   clips = [],
@@ -404,7 +406,6 @@ export default function WaveformVisualizer({
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    console.log("HEHEHEEHEHEH");
     if (!canvasRef.current || !onSeek) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
@@ -507,8 +508,8 @@ export default function WaveformVisualizer({
       if (endTime - startTime > 0.1) {
         const newClip: Clip = {
           id: `clip-${Date.now()}`,
-          startTime: startTime,
-          endTime: endTime,
+          startTime: isReversed ? duration - endTime : startTime,
+          endTime: isReversed ? duration - startTime : endTime,
           visualStartTime: startTime,
           visualEndTime: endTime,
         };
@@ -632,8 +633,8 @@ export default function WaveformVisualizer({
       if (endTime - startTime > 0.1) {
         const newClip: Clip = {
           id: `clip-${Date.now()}`,
-          startTime: startTime,
-          endTime: endTime,
+          startTime: isReversed ? duration - endTime : startTime,
+          endTime: isReversed ? duration - startTime : endTime,
           visualStartTime: startTime,
           visualEndTime: endTime,
         };

@@ -890,6 +890,7 @@ export default function AudioManipulator() {
                   <WaveformVisualizer
                     audioBuffer={audioBuffer}
                     currentTime={currentTime}
+                    isReversed={effects.reverse}
                     duration={duration}
                     onSeek={seekAudio}
                     clips={clip ? [clip] : []}

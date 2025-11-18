@@ -188,7 +188,7 @@ export default function AudioManipulator() {
     }
   }, [processedBuffer]);
 
-  useEffect(() => {
+  const triggerClipUpdate = () => {
     if (isPlaying && clip) {
       // Store the current playback position before pausing
       const currentPosition = pauseTimeRef.current;
@@ -211,7 +211,7 @@ export default function AudioManipulator() {
         // setTimeout(() => playAudio(clip), 50);
       }
     }
-  }, [clip]);
+  };
 
   const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
     const reversedBuffer = audioContextRef.current!.createBuffer(
@@ -923,7 +923,10 @@ export default function AudioManipulator() {
                     duration={duration}
                     onSeek={seekAudio}
                     clips={clip ? [clip] : []}
-                    onClipsChange={(clips) => setClip(clips[0] || null)}
+                    onClipsChange={(clips) => {
+                      setClip(clips[0] || null);
+                      triggerClipUpdate();
+                    }}
                     pauseAudio={pauseAudio}
                   />
                 </div>

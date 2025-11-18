@@ -188,6 +188,31 @@ export default function AudioManipulator() {
     }
   }, [processedBuffer]);
 
+  useEffect(() => {
+    if (isPlaying && clip) {
+      // Store the current playback position before pausing
+      const currentPosition = pauseTimeRef.current;
+
+      // Check if current position is within the new clip bounds
+      const isWithinNewClip =
+        currentPosition >= clip.startTime && currentPosition <= clip.endTime;
+
+      if (isWithinNewClip) {
+        // If we're still within bounds, just continue playing with updated clip
+        // The playAudio function will handle the new endpoint automatically
+        pauseAudio();
+        playAudio(clip);
+        // setTimeout(() => playAudio(clip), 50);
+      } else {
+        // If we're outside the new clip bounds, reset to clip start
+        pauseAudio();
+        pauseTimeRef.current = clip.startTime;
+        playAudio(clip);
+        // setTimeout(() => playAudio(clip), 50);
+      }
+    }
+  }, [clip]);
+
   const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
     const reversedBuffer = audioContextRef.current!.createBuffer(
       buffer.numberOfChannels,
@@ -355,7 +380,11 @@ export default function AudioManipulator() {
             sourceNodeRef.current.disconnect();
             setSelectedClipId(null);
             if (clipForPlayback) {
-              setCurrentTime(clipForPlayback.startTime);
+              setCurrentTime(
+                effects.reverse
+                  ? clipForPlayback.visualEndTime
+                  : clipForPlayback.visualStartTime
+              );
               pauseTimeRef.current = clipForPlayback.startTime;
             } else {
               setCurrentTime(0);
@@ -956,7 +985,7 @@ export default function AudioManipulator() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={downloadClips}>
                                 <Download className="w-4 h-4 mr-2" />
-                                Trimmed
+                                Clip Only
                               </DropdownMenuItem>
                             </>
                           )}

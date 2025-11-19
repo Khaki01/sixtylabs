@@ -146,18 +146,19 @@ export default function AudioManipulator() {
 
   useEffect(() => {
     if (sourceNodeRef.current && audioContextRef.current && isPlaying) {
+      // Calculate current position before stopping
       const contextElapsed =
         audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
       const bufferElapsed = contextElapsed * playbackRateRef.current;
-      bufferPositionAtLastChangeRef.current =
+      const currentBufferPosition =
         bufferPositionAtLastChangeRef.current + bufferElapsed;
-      lastPitchChangeTimeRef.current = audioContextRef.current.currentTime;
 
-      sourceNodeRef.current.playbackRate.setValueAtTime(
-        effects.pitch,
-        audioContextRef.current.currentTime
-      );
-      playbackRateRef.current = effects.pitch;
+      // Store the current position
+      pauseTimeRef.current = currentBufferPosition;
+
+      // Restart playback with new pitch
+      pauseAudio();
+      playAudio(clip ? clip : undefined);
     }
   }, [effects.pitch]);
 
@@ -217,6 +218,8 @@ export default function AudioManipulator() {
         playAudio(input_clip);
         // setTimeout(() => playAudio(clip), 50);
       }
+    } else if (!input_clip) {
+      pauseAudio();
     }
   };
 

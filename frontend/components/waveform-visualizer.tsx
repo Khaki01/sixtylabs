@@ -31,6 +31,8 @@ interface WaveformVisualizerProps {
   pauseAudio: () => void;
 }
 
+const DELTA_TIME = 0.0001;
+
 export default function WaveformVisualizer({
   audioBuffer,
   currentTime,
@@ -452,17 +454,27 @@ export default function WaveformVisualizer({
         if (clip.id === draggedClipEdge.clipId) {
           if (draggedClipEdge.edge === "start") {
             // Ensure start doesn't go past end (leave at least 0.1s)
+            const newVisualStart = Math.min(newTime, clip.visualEndTime - 0.1);
+
             return {
               ...clip,
-              startTime: Math.min(newTime, clip.endTime - 0.1),
-              visualStartTime: Math.min(newTime, clip.visualEndTime - 0.1),
+              startTime: isReversed
+                ? duration - clip.visualEndTime
+                : newVisualStart,
+              endTime: isReversed ? duration - newVisualStart : clip.endTime,
+              visualStartTime: newVisualStart,
             };
           } else {
             // Ensure end doesn't go before start (leave at least 0.1s)
+            const newVisualEnd = Math.max(newTime, clip.visualStartTime + 0.1);
+
             return {
               ...clip,
-              endTime: Math.max(newTime, clip.startTime + 0.1),
-              visualEndTime: Math.max(newTime, clip.visualStartTime + 0.1),
+              startTime: isReversed ? duration - newVisualEnd : clip.startTime,
+              endTime: isReversed
+                ? duration - clip.visualStartTime
+                : newVisualEnd,
+              visualEndTime: newVisualEnd,
             };
           }
         }
@@ -589,16 +601,28 @@ export default function WaveformVisualizer({
       const updatedClips = clips.map((clip) => {
         if (clip.id === draggedClipEdge.clipId) {
           if (draggedClipEdge.edge === "start") {
+            // Ensure start doesn't go past end (leave at least 0.1s)
+            const newVisualStart = Math.min(newTime, clip.visualEndTime - 0.1);
+
             return {
               ...clip,
-              startTime: Math.min(newTime, clip.endTime - 0.1),
-              visualStartTime: Math.min(newTime, clip.visualEndTime - 0.1),
+              startTime: isReversed
+                ? duration - clip.visualEndTime
+                : newVisualStart,
+              endTime: isReversed ? duration - newVisualStart : clip.endTime,
+              visualStartTime: newVisualStart,
             };
           } else {
+            // Ensure end doesn't go before start (leave at least 0.1s)
+            const newVisualEnd = Math.max(newTime, clip.visualStartTime + 0.1);
+
             return {
               ...clip,
-              endTime: Math.max(newTime, clip.startTime + 0.1),
-              visualEndTime: Math.max(newTime, clip.visualStartTime + 0.1),
+              startTime: isReversed ? duration - newVisualEnd : clip.startTime,
+              endTime: isReversed
+                ? duration - clip.visualStartTime
+                : newVisualEnd,
+              visualEndTime: newVisualEnd,
             };
           }
         }

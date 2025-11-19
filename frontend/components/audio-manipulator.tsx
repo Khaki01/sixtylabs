@@ -188,26 +188,33 @@ export default function AudioManipulator() {
     }
   }, [processedBuffer]);
 
-  const triggerClipUpdate = () => {
-    if (isPlaying && clip) {
-      // Store the current playback position before pausing
+  const triggerClipUpdate = (input_clip?: Clip) => {
+    if (isPlaying && input_clip) {
       const currentPosition = pauseTimeRef.current;
 
       // Check if current position is within the new clip bounds
-      const isWithinNewClip =
-        currentPosition >= clip.startTime && currentPosition <= clip.endTime;
+      let isWithinNewClip;
+      if (effects.reverse) {
+        isWithinNewClip =
+          currentPosition >= input_clip.endTime &&
+          currentPosition <= input_clip.startTime;
+      } else {
+        isWithinNewClip =
+          currentPosition >= input_clip.startTime &&
+          currentPosition <= input_clip.endTime;
+      }
 
       if (isWithinNewClip) {
         // If we're still within bounds, just continue playing with updated clip
         // The playAudio function will handle the new endpoint automatically
         pauseAudio();
-        playAudio(clip);
+        playAudio(input_clip);
         // setTimeout(() => playAudio(clip), 50);
       } else {
         // If we're outside the new clip bounds, reset to clip start
         pauseAudio();
-        pauseTimeRef.current = clip.startTime;
-        playAudio(clip);
+        pauseTimeRef.current = pauseTimeRef.current;
+        playAudio(input_clip);
         // setTimeout(() => playAudio(clip), 50);
       }
     }
@@ -925,7 +932,7 @@ export default function AudioManipulator() {
                     clips={clip ? [clip] : []}
                     onClipsChange={(clips) => {
                       setClip(clips[0] || null);
-                      triggerClipUpdate();
+                      triggerClipUpdate(clips[0] || null);
                     }}
                     pauseAudio={pauseAudio}
                   />

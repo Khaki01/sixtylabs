@@ -12,14 +12,9 @@ import {
   RotateCcw,
   Download,
   Repeat,
-  Moon,
-  Sun,
   PlayIcon,
   ChevronDown,
-  Lock,
-  Loader2,
-  Save,
-  User,
+  Menu,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
@@ -28,7 +23,6 @@ import FeedbackDialog from "./feedback-dialog";
 import Link from "next/link";
 import type { Clip } from "./waveform-visualizer";
 import { isAuthenticated } from "@/lib/auth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -44,12 +38,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from "@/components/ui/tooltip";
 
 const SAMPLE_LIBRARY = [
   { id: 1, name: "Lo-Fi Beat 01", author: "DJ Smooth", genre: "Lo-Fi Hip Hop" },
@@ -69,6 +57,8 @@ export default function AudioManipulator() {
   const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(
     null
   );
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isRendering, setIsRendering] = useState(false);
@@ -721,98 +711,117 @@ export default function AudioManipulator() {
       <header className="border-b-2 border-foreground pb-2 mb-4">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
-              FOURPAGE{" "}
-              <span className="text-sm hidden md:inline md:text-lg font-normal text-muted-foreground">
-                Sixty Lens
-              </span>
-            </h1>
+            <Link
+              href="/home"
+              className="cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
+                FOURPAGE{" "}
+                <span className="text-sm hidden md:inline md:text-lg font-normal text-muted-foreground">
+                  Sixty Lens
+                </span>
+              </h1>
+            </Link>
           </div>
-          <div className="flex items-center gap-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleSaveProject}
-                    variant={
-                      hasUnsavedChanges && isSignedIn ? "default" : "outline"
-                    }
-                    disabled={isSaving}
-                    size="icon"
-                    className={`font-mono uppercase tracking-wider relative w-9 h-9 ${
-                      !isSignedIn || (!hasUnsavedChanges && isSignedIn)
-                        ? "bg-transparent"
-                        : ""
-                    }`}
-                  >
-                    {isSaving ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : !isSignedIn ? (
-                      <Lock className="w-4 h-4" />
-                    ) : hasUnsavedChanges ? (
-                      <>
-                        <div className="w-1.5 h-1.5 rounded-full bg-background absolute top-1 right-1" />
-                        <Save className="w-4 h-4" />
-                      </>
-                    ) : (
-                      <Save className="w-4 h-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="font-mono text-xs">
-                  {!isSignedIn
-                    ? "Sign in to save"
-                    : hasUnsavedChanges
-                    ? "Save project"
-                    : lastSavedTime
-                    ? `Saved ${lastSavedTime.toLocaleTimeString()}`
-                    : "Saved"}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            {isSignedIn ? (
-              <Link href="/profile">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="font-mono bg-transparent p-2"
-                >
-                  <Avatar className="w-6 h-6">
-                    <AvatarFallback className="bg-transparent text-foreground" />
-                  </Avatar>
-                </Button>
-              </Link>
-            ) : (
-              <>
-                <Link href="/sign-in">
-                  <Button
-                    variant="outline"
-                    size="text"
-                    className="font-mono uppercase tracking-wider bg-transparent"
-                  >
-                    <User className="w-4 h-4" />
-                  </Button>
-                </Link>
-              </>
-            )}
-            <FeedbackDialog />
-            {mounted && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="font-mono bg-transparent"
-              >
-                {theme === "dark" ? (
-                  <Sun className="w-4 h-4" />
-                ) : (
-                  <Moon className="w-4 h-4" />
-                )}
-              </Button>
-            )}
-          </div>
+          <Button
+            onClick={() => setIsMenuOpen(true)}
+            variant="outline"
+            size="icon"
+            className="font-mono bg-transparent"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
         </div>
       </header>
+
+      {isMenuOpen && (
+        <div
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setIsMenuOpen(false)}
+        >
+          <div
+            className="bg-background border-2 border-foreground w-full max-w-md font-mono relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b-2 border-foreground p-6 bg-background flex items-center justify-between">
+              <h2 className="font-mono text-xl font-bold tracking-tight uppercase">
+                MAIN MENU
+              </h2>
+              <button
+                onClick={() => setIsMenuOpen(false)}
+                className="font-mono text-xl font-bold hover:opacity-80 transition-opacity"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="space-y-4">
+                <Link href="/home" className="block">
+                  <button
+                    onClick={() => setIsMenuOpen(false)}
+                    className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                  >
+                    1 HOME
+                  </button>
+                </Link>
+
+                {isSignedIn ? (
+                  <Link href="/profile" className="block">
+                    <button
+                      onClick={() => setIsMenuOpen(false)}
+                      className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                    >
+                      2 PROFILE
+                    </button>
+                  </Link>
+                ) : (
+                  <Link href="/sign-in" className="block">
+                    <button
+                      onClick={() => setIsMenuOpen(false)}
+                      className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                    >
+                      2 SIGN IN
+                    </button>
+                  </Link>
+                )}
+
+                <div className="relative">
+                  <button
+                    className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      setIsFeedbackOpen(true);
+                    }}
+                  >
+                    3 FEEDBACK
+                  </button>
+                </div>
+
+                {mounted && (
+                  <button
+                    onClick={() => {
+                      setTheme(theme === "dark" ? "light" : "dark");
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                  >
+                    4 {theme === "dark" ? "LIGHT MODE" : "DARK MODE"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full">
+        <FeedbackDialog
+          openValue={isFeedbackOpen}
+          onOpenChange={() => setIsFeedbackOpen(false)}
+        />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">

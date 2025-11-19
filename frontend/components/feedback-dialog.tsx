@@ -2,9 +2,9 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { MessageSquare, X } from "lucide-react";
+import { X } from "lucide-react";
 import FadeContent from "./fade-content";
 import {
   Select,
@@ -14,13 +14,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export default function FeedbackDialog() {
-  const [isOpen, setIsOpen] = useState(false);
+interface FeedbackDialogProps {
+  onOpenChange?: () => void;
+  trigger?: React.ReactNode;
+  openValue?: Boolean;
+}
+
+export default function FeedbackDialog({
+  onOpenChange,
+  trigger,
+  openValue = false,
+}: FeedbackDialogProps) {
+  const [isOpen, setIsOpen] = useState(openValue);
   const [feedbackType, setFeedbackType] = useState<
     "bug" | "feedback" | "feature"
   >("feedback");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setIsOpen(!!openValue);
+  }, [openValue]);
+
+  const handleClose = () => {
+    setIsOpen(false);
+    if (onOpenChange) onOpenChange();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,20 +58,13 @@ export default function FeedbackDialog() {
 
   return (
     <div className="relative">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setIsOpen(!isOpen)}
-        className="font-mono bg-transparent"
-      >
-        <MessageSquare className="w-4 h-4" />
-      </Button>
+      {trigger && <div onClick={() => setIsOpen(!isOpen)}>{trigger}</div>}
 
       {isOpen && (
         <>
           <div
             className="fixed inset-0 z-40 bg-black/50"
-            onClick={() => setIsOpen(false)}
+            onClick={handleClose}
           />
 
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -64,7 +76,7 @@ export default function FeedbackDialog() {
                     Feedback
                   </h3>
                   <button
-                    onClick={() => setIsOpen(false)}
+                    onClick={handleClose}
                     className="hover:opacity-70 transition-opacity"
                   >
                     <X className="w-4 h-4" />

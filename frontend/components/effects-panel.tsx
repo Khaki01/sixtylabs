@@ -1,51 +1,59 @@
-"use client"
-import { Slider } from "@/components/ui/slider"
-import { Button } from "@/components/ui/button"
-import { Plus, Trash2 } from "lucide-react"
-import { useState } from "react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+"use client";
+import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
+import { Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface EffectsPanelProps {
   effects: {
-    volume: number
-    pitch: number
-    reverse: boolean
-    delayTime: number
-    delayFeedback: number
-    delayMix: number
-    reverbRoomSize: number
-    reverbDecay: number
-    reverbMix: number
-  }
-  setEffects: (effects: any) => void
+    volume: number;
+    pitch: number;
+    reverse: boolean;
+    delayTime: number;
+    delayFeedback: number;
+    delayMix: number;
+    reverbRoomSize: number;
+    reverbDecay: number;
+    reverbMix: number;
+  };
+  setEffects: (effects: any) => void;
 }
 
 const AVAILABLE_EFFECTS = [
   { id: "delay", name: "Delay", number: "EE01" },
   { id: "reverb", name: "Reverb", number: "EE02" },
-]
+];
 
-export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps) {
-  const [enabledEffects, setEnabledEffects] = useState<string[]>([])
-  const [pitchTimeEnabled, setPitchTimeEnabled] = useState(true)
-  const [delayEnabled, setDelayEnabled] = useState(true)
-  const [reverbEnabled, setReverbEnabled] = useState(true)
+export default function EffectsPanel({
+  effects,
+  setEffects,
+}: EffectsPanelProps) {
+  const [enabledEffects, setEnabledEffects] = useState<string[]>([]);
+  const [pitchTimeEnabled, setPitchTimeEnabled] = useState(true);
+  const [delayEnabled, setDelayEnabled] = useState(true);
+  const [reverbEnabled, setReverbEnabled] = useState(true);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
-      setEnabledEffects([...enabledEffects, effectType])
+      setEnabledEffects([...enabledEffects, effectType]);
     }
-  }
+  };
 
   const removeEffect = (effectType: string) => {
-    setEnabledEffects(enabledEffects.filter((e) => e !== effectType))
+    setEnabledEffects(enabledEffects.filter((e) => e !== effectType));
     if (effectType === "delay") {
       setEffects({
         ...effects,
         delayTime: 0.3,
         delayFeedback: 0.3,
         delayMix: 0.5,
-      })
+      });
     }
     if (effectType === "reverb") {
       setEffects({
@@ -53,45 +61,52 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
         reverbRoomSize: 0.5,
         reverbDecay: 0.5,
         reverbMix: 0,
-      })
+      });
     }
-  }
+  };
 
   const togglePitchTime = () => {
-    const newEnabled = !pitchTimeEnabled
-    setPitchTimeEnabled(newEnabled)
+    const newEnabled = !pitchTimeEnabled;
+    setPitchTimeEnabled(newEnabled);
     if (!newEnabled) {
       setEffects({
         ...effects,
         pitch: 1,
         reverse: false,
-      })
+      });
     }
-  }
+  };
 
   const toggleDelay = () => {
-    const newEnabled = !delayEnabled
-    setDelayEnabled(newEnabled)
+    const newEnabled = !delayEnabled;
+    setDelayEnabled(newEnabled);
     if (!newEnabled) {
       setEffects({
         ...effects,
         delayMix: 0,
-      })
+      });
     }
-  }
+  };
 
   const toggleReverb = () => {
-    const newEnabled = !reverbEnabled
-    setReverbEnabled(newEnabled)
+    const newEnabled = !reverbEnabled;
+    setReverbEnabled(newEnabled);
     if (!newEnabled) {
       setEffects({
         ...effects,
         reverbMix: 0,
-      })
+      });
+    } else {
+      setEffects({
+        ...effects,
+        reverbMix: 0.3,
+      });
     }
-  }
+  };
 
-  const availableEffects = AVAILABLE_EFFECTS.filter((effect) => !enabledEffects.includes(effect.id))
+  const availableEffects = AVAILABLE_EFFECTS.filter(
+    (effect) => !enabledEffects.includes(effect.id)
+  );
 
   return (
     <div className="space-y-6">
@@ -108,7 +123,9 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] font-mono">
           {availableEffects.length === 0 ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">No effects available</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              No effects available
+            </div>
           ) : (
             availableEffects.map((effect) => (
               <DropdownMenuItem
@@ -141,14 +158,20 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
           >
             EE00
           </button>
-          <h3 className="font-mono text-base uppercase tracking-wider font-medium">Pitch &amp; Time</h3>
+          <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+            Pitch &amp; Time
+          </h3>
         </div>
 
         <div className="space-y-2">
-          <label className="font-mono text-xs uppercase tracking-wider">Pitch: {effects.pitch.toFixed(2)}x</label>
+          <label className="font-mono text-xs uppercase tracking-wider">
+            Pitch: {effects.pitch.toFixed(2)}x
+          </label>
           <Slider
             value={[effects.pitch]}
-            onValueChange={([value]) => setEffects({ ...effects, pitch: value })}
+            onValueChange={([value]) =>
+              setEffects({ ...effects, pitch: value })
+            }
             min={0.25}
             max={4}
             step={0.01}
@@ -159,7 +182,9 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
         <Button
           variant={effects.reverse ? "default" : "outline"}
           onClick={() => setEffects({ ...effects, reverse: !effects.reverse })}
-          className={`w-full font-mono uppercase tracking-wider ${effects.reverse ? "" : "bg-transparent"}`}
+          className={`w-full font-mono uppercase tracking-wider ${
+            effects.reverse ? "" : "bg-transparent"
+          }`}
           disabled={!pitchTimeEnabled}
         >
           Reverse: {effects.reverse ? "ON" : "OFF"}
@@ -180,7 +205,9 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
               >
                 EE01
               </button>
-              <h3 className="font-mono text-base uppercase tracking-wider font-medium">Delay</h3>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Delay
+              </h3>
             </div>
             <Button
               variant="ghost"
@@ -193,10 +220,14 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
           </div>
 
           <div className="space-y-2">
-            <label className="font-mono text-xs uppercase tracking-wider">Time: {effects.delayTime.toFixed(2)}s</label>
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Time: {effects.delayTime.toFixed(2)}s
+            </label>
             <Slider
               value={[effects.delayTime]}
-              onValueChange={([value]) => setEffects({ ...effects, delayTime: value })}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, delayTime: value })
+              }
               min={0.01}
               max={2}
               step={0.01}
@@ -210,7 +241,9 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
             </label>
             <Slider
               value={[effects.delayFeedback]}
-              onValueChange={([value]) => setEffects({ ...effects, delayFeedback: value })}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, delayFeedback: value })
+              }
               min={0}
               max={0.9}
               step={0.01}
@@ -234,7 +267,9 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
               >
                 EE02
               </button>
-              <h3 className="font-mono text-base uppercase tracking-wider font-medium">Reverb</h3>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Reverb
+              </h3>
             </div>
             <Button
               variant="ghost"
@@ -248,11 +283,29 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
 
           <div className="space-y-2">
             <label className="font-mono text-xs uppercase tracking-wider">
+              Room Size: {Math.round(effects.reverbRoomSize * 100)}%
+            </label>
+            <Slider
+              value={[effects.reverbRoomSize]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, reverbRoomSize: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!reverbEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
               Decay: {Math.round(effects.reverbDecay * 100)}%
             </label>
             <Slider
               value={[effects.reverbDecay]}
-              onValueChange={([value]) => setEffects({ ...effects, reverbDecay: value })}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, reverbDecay: value })
+              }
               min={0}
               max={1}
               step={0.01}
@@ -266,7 +319,9 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
             </label>
             <Slider
               value={[effects.reverbMix]}
-              onValueChange={([value]) => setEffects({ ...effects, reverbMix: value })}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, reverbMix: value })
+              }
               min={0}
               max={1}
               step={0.01}
@@ -276,5 +331,5 @@ export default function EffectsPanel({ effects, setEffects }: EffectsPanelProps)
         </div>
       )}
     </div>
-  )
+  );
 }

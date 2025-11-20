@@ -80,6 +80,15 @@ export default function AudioManipulator() {
 
   const gainNodeRef = useRef<GainNode | null>(null);
 
+  const reverbNodeRef = useRef<{
+    input: GainNode;
+    output: GainNode;
+    delays: DelayNode[];
+    gains: GainNode[];
+    filters: BiquadFilterNode[];
+  } | null>(null);
+  const reverbWetGainRef = useRef<GainNode | null>(null);
+
   const [effects, setEffects] = useState({
     volume: 1.0,
     pitch: 1,
@@ -116,6 +125,17 @@ export default function AudioManipulator() {
     gainNodeRef.current.gain.value = effects.volume;
     gainNodeRef.current.connect(ctx.destination);
 
+    reverbNodeRef.current = createReverb(
+      ctx,
+      effects.reverbRoomSize,
+      effects.reverbDecay
+    );
+    reverbWetGainRef.current = ctx.createGain();
+    reverbWetGainRef.current.gain.value = effects.reverbMix;
+
+    reverbNodeRef.current.output.connect(reverbWetGainRef.current);
+    reverbWetGainRef.current.connect(ctx.destination);
+
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -133,6 +153,42 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.volume]);
+
+  useEffect(() => {
+    if (reverbWetGainRef.current && audioContextRef.current) {
+      reverbWetGainRef.current.gain.setTargetAtTime(
+        effects.reverbMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.reverbMix]);
+
+  useEffect(() => {
+    if (reverbNodeRef.current && audioContextRef.current) {
+      const { delays, gains, filters } = reverbNodeRef.current;
+      const { reverbRoomSize, reverbDecay } = effects;
+      const currentTime = audioContextRef.current.currentTime;
+
+      const baseTimes = [
+        0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
+      ];
+
+      delays.forEach((delay, i) => {
+        delay.delayTime.setTargetAtTime(
+          baseTimes[i] * (1 + reverbRoomSize * 3),
+          currentTime,
+          0.1
+        );
+        gains[i].gain.setTargetAtTime(reverbDecay * 0.65, currentTime, 0.1);
+        filters[i].frequency.setTargetAtTime(
+          3000 - reverbDecay * 1500,
+          currentTime,
+          0.1
+        );
+      });
+    }
+  }, [effects.reverbRoomSize, effects.reverbDecay]);
 
   useEffect(() => {
     if (sourceNodeRef.current && audioContextRef.current && isPlaying) {
@@ -329,6 +385,10 @@ export default function AudioManipulator() {
     sourceNodeRef.current.connect(dryGain);
 
     dryGain.connect(gainNodeRef.current!);
+
+    if (reverbNodeRef.current) {
+      sourceNodeRef.current.connect(reverbNodeRef.current.input);
+    }
 
     sourceNodeRef.current.start(0, bufferStartOffset);
     startTimeRef.current = audioContextRef.current.currentTime;
@@ -653,10 +713,14 @@ export default function AudioManipulator() {
     decay: number
   ) => {
     const delays = [
-      ctx.createDelay(1),
-      ctx.createDelay(1),
-      ctx.createDelay(1),
-      ctx.createDelay(1),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
+      ctx.createDelay(5.0),
     ];
 
     const gains = [
@@ -664,25 +728,66 @@ export default function AudioManipulator() {
       ctx.createGain(),
       ctx.createGain(),
       ctx.createGain(),
+      ctx.createGain(),
+      ctx.createGain(),
+      ctx.createGain(),
+      ctx.createGain(),
     ];
 
-    const baseTimes = [0.0297, 0.0371, 0.0411, 0.0437];
+    const filters = [
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+      ctx.createBiquadFilter(),
+    ];
+
+    const baseTimes = [
+      0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
+    ];
+
     delays.forEach((delay, i) => {
-      delay.delayTime.value = baseTimes[i] * (0.5 + roomSize * 1.5);
-      gains[i].gain.value = decay * 0.7;
+      delay.delayTime.value = baseTimes[i] * (1 + roomSize * 3);
+      gains[i].gain.value = decay * 0.65;
+
+      filters[i].type = "lowpass";
+      filters[i].frequency.value = 3000 - decay * 1500;
+      filters[i].Q.value = 0.5;
     });
 
     const input = ctx.createGain();
     const output = ctx.createGain();
 
+    const diffusion = ctx.createGain();
+    diffusion.gain.value = 0.7;
+
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -20;
+    compressor.knee.value = 30;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+
+    const preCompressorGain = ctx.createGain();
+    preCompressorGain.gain.value = 0.4;
+
     delays.forEach((delay, i) => {
       input.connect(delay);
-      delay.connect(gains[i]);
-      gains[i].connect(output);
-      gains[i].connect(delay);
+      delay.connect(filters[i]);
+      filters[i].connect(gains[i]);
+      gains[i].connect(preCompressorGain);
+      gains[i].connect(delays[(i + 1) % delays.length]);
+      gains[i].connect(diffusion);
     });
 
-    return { input, output };
+    diffusion.connect(preCompressorGain);
+    preCompressorGain.connect(compressor);
+    compressor.connect(output);
+
+    return { input, output, delays, gains, filters };
   };
 
   const handleSaveProject = async () => {

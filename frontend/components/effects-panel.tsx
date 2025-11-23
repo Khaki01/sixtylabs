@@ -21,6 +21,11 @@ interface EffectsPanelProps {
     reverbRoomSize: number;
     reverbDecay: number;
     reverbMix: number;
+
+    // flags
+    pitchEnabled: boolean;
+    delayEnabled: boolean;
+    reverbEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -36,8 +41,8 @@ export default function EffectsPanel({
 }: EffectsPanelProps) {
   const [enabledEffects, setEnabledEffects] = useState<string[]>([]);
   const [pitchTimeEnabled, setPitchTimeEnabled] = useState(true);
-  const [delayEnabled, setDelayEnabled] = useState(true);
-  const [reverbEnabled, setReverbEnabled] = useState(true);
+  const [delayEnabled, setDelayEnabled] = useState(false);
+  const [reverbEnabled, setReverbEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -50,17 +55,13 @@ export default function EffectsPanel({
     if (effectType === "delay") {
       setEffects({
         ...effects,
-        delayTime: 0.3,
-        delayFeedback: 0.3,
-        delayMix: 0.5,
+        delayEnabled: false,
       });
     }
     if (effectType === "reverb") {
       setEffects({
         ...effects,
-        reverbRoomSize: 0.5,
-        reverbDecay: 0.5,
-        reverbMix: 0,
+        reverbEnabled: false,
       });
     }
   };
@@ -68,40 +69,30 @@ export default function EffectsPanel({
   const togglePitchTime = () => {
     const newEnabled = !pitchTimeEnabled;
     setPitchTimeEnabled(newEnabled);
-    if (!newEnabled) {
-      setEffects({
-        ...effects,
-        pitch: 1,
-        reverse: false,
-      });
-    }
+    setEffects({
+      ...effects,
+      pitchEnabled: newEnabled,
+    });
   };
 
   const toggleDelay = () => {
     const newEnabled = !delayEnabled;
     setDelayEnabled(newEnabled);
-    if (!newEnabled) {
-      setEffects({
-        ...effects,
-        delayMix: 0,
-      });
-    }
+
+    setEffects({
+      ...effects,
+      delayEnabled: newEnabled,
+    });
   };
 
   const toggleReverb = () => {
     const newEnabled = !reverbEnabled;
     setReverbEnabled(newEnabled);
-    if (!newEnabled) {
-      setEffects({
-        ...effects,
-        reverbMix: 0,
-      });
-    } else {
-      setEffects({
-        ...effects,
-        reverbMix: 0.3,
-      });
-    }
+
+    setEffects({
+      ...effects,
+      reverbEnabled: newEnabled,
+    });
   };
 
   const availableEffects = AVAILABLE_EFFECTS.filter(

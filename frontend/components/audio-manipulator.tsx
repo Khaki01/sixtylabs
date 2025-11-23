@@ -75,8 +75,10 @@ export default function AudioManipulator() {
   const playbackRateRef = useRef<number>(1);
   const animationFrameRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const delayNodeRef = useRef<DelayNode | null>(null);
   const delayFeedbackGainRef = useRef<GainNode | null>(null);
+  const delayWetGainRef = useRef<GainNode | null>(null);
 
   const gainNodeRef = useRef<GainNode | null>(null);
 
@@ -99,6 +101,9 @@ export default function AudioManipulator() {
     reverbRoomSize: 0.5,
     reverbDecay: 0.5,
     reverbMix: 0,
+    pitchEnabled: true,
+    delayEnabled: false,
+    reverbEnabled: false,
   });
 
   const isLoopingRef = useRef(false);
@@ -145,6 +150,11 @@ export default function AudioManipulator() {
 
   // effets handlers
   useEffect(() => {
+    pauseAudio();
+    playAudio(clip ? clip : undefined);
+  }, [effects.pitchEnabled, effects.delayEnabled, effects.reverbEnabled]);
+
+  useEffect(() => {
     if (gainNodeRef.current) {
       gainNodeRef.current.gain.setTargetAtTime(
         effects.volume,
@@ -166,23 +176,24 @@ export default function AudioManipulator() {
 
   useEffect(() => {
     if (reverbNodeRef.current && audioContextRef.current) {
-      const { delays, gains, filters } = reverbNodeRef.current;
-      const { reverbRoomSize, reverbDecay } = effects;
       const currentTime = audioContextRef.current.currentTime;
-
       const baseTimes = [
         0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
       ];
 
-      delays.forEach((delay, i) => {
+      reverbNodeRef.current.delays.forEach((delay, i) => {
         delay.delayTime.setTargetAtTime(
-          baseTimes[i] * (1 + reverbRoomSize * 3),
+          baseTimes[i] * (1 + effects.reverbRoomSize * 3),
           currentTime,
           0.1
         );
-        gains[i].gain.setTargetAtTime(reverbDecay * 0.65, currentTime, 0.1);
-        filters[i].frequency.setTargetAtTime(
-          3000 - reverbDecay * 1500,
+        reverbNodeRef.current!.gains[i].gain.setTargetAtTime(
+          effects.reverbDecay * 0.65,
+          currentTime,
+          0.1
+        );
+        reverbNodeRef.current!.filters[i].frequency.setTargetAtTime(
+          3000 - effects.reverbDecay * 1500,
           currentTime,
           0.1
         );
@@ -191,7 +202,42 @@ export default function AudioManipulator() {
   }, [effects.reverbRoomSize, effects.reverbDecay]);
 
   useEffect(() => {
-    if (sourceNodeRef.current && audioContextRef.current && isPlaying) {
+    if (delayNodeRef.current && audioContextRef.current && isPlaying) {
+      delayNodeRef.current.delayTime.setTargetAtTime(
+        effects.delayTime,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.delayTime, isPlaying]);
+
+  useEffect(() => {
+    if (delayFeedbackGainRef.current && audioContextRef.current && isPlaying) {
+      delayFeedbackGainRef.current.gain.setTargetAtTime(
+        effects.delayFeedback,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.delayFeedback, isPlaying]);
+
+  useEffect(() => {
+    if (delayWetGainRef.current && audioContextRef.current && isPlaying) {
+      delayWetGainRef.current.gain.setTargetAtTime(
+        effects.delayMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.delayMix, isPlaying]);
+
+  useEffect(() => {
+    if (
+      sourceNodeRef.current &&
+      audioContextRef.current &&
+      isPlaying
+      // effects.pitchEnabled
+    ) {
       // Calculate current position before stopping
       const contextElapsed =
         audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
@@ -345,13 +391,6 @@ export default function AudioManipulator() {
       sourceNodeRef.current.disconnect();
     }
 
-    if (delayNodeRef.current) {
-      delayNodeRef.current.disconnect();
-    }
-    if (delayFeedbackGainRef.current) {
-      delayFeedbackGainRef.current.disconnect();
-    }
-
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -374,19 +413,43 @@ export default function AudioManipulator() {
 
     sourceNodeRef.current = audioContextRef.current.createBufferSource();
     sourceNodeRef.current.buffer = processedBuffer;
-    sourceNodeRef.current.playbackRate.value = effects.pitch;
+    if (effects.pitchEnabled) {
+      sourceNodeRef.current.playbackRate.value = effects.pitch;
+    } else {
+      sourceNodeRef.current.playbackRate.value = 1;
+    }
 
     const ctx = audioContextRef.current;
     const dryGain = ctx.createGain();
 
-    dryGain.gain.value =
-      1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
+    // DRY GAIN
+    const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
+    const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
+    dryGain.gain.value = 1 - Math.max(activeDelayMix, activeReverbMix) * 0.5;
 
     sourceNodeRef.current.connect(dryGain);
-
     dryGain.connect(gainNodeRef.current!);
 
-    if (reverbNodeRef.current) {
+    // DELAY EFFECT
+    if (effects.delayEnabled) {
+      delayNodeRef.current = ctx.createDelay(2);
+      delayFeedbackGainRef.current = ctx.createGain();
+      delayWetGainRef.current = ctx.createGain();
+
+      delayNodeRef.current.delayTime.value = effects.delayTime;
+      delayFeedbackGainRef.current.gain.value = effects.delayFeedback;
+      delayWetGainRef.current.gain.value = effects.delayMix;
+
+      delayNodeRef.current.connect(delayFeedbackGainRef.current);
+      delayFeedbackGainRef.current.connect(delayNodeRef.current);
+      delayNodeRef.current.connect(delayWetGainRef.current);
+
+      sourceNodeRef.current.connect(delayNodeRef.current);
+      delayWetGainRef.current.connect(gainNodeRef.current!);
+    }
+
+    // REVERB EFFECT
+    if (effects.reverbEnabled && reverbNodeRef.current) {
       sourceNodeRef.current.connect(reverbNodeRef.current.input);
     }
 
@@ -436,6 +499,10 @@ export default function AudioManipulator() {
               delayFeedbackGainRef.current.disconnect();
               delayFeedbackGainRef.current = null;
             }
+            if (delayWetGainRef.current) {
+              delayWetGainRef.current.disconnect();
+              delayWetGainRef.current = null;
+            }
             sourceNodeRef.current.stop();
             sourceNodeRef.current.disconnect();
             setSelectedClipId(null);
@@ -471,6 +538,7 @@ export default function AudioManipulator() {
 
       sourceNodeRef.current.stop();
       sourceNodeRef.current.disconnect();
+
       if (delayNodeRef.current) {
         delayNodeRef.current.disconnect();
         delayNodeRef.current = null;
@@ -479,6 +547,11 @@ export default function AudioManipulator() {
         delayFeedbackGainRef.current.disconnect();
         delayFeedbackGainRef.current = null;
       }
+      if (delayWetGainRef.current) {
+        delayWetGainRef.current.disconnect();
+        delayWetGainRef.current = null;
+      }
+
       const contextElapsed =
         audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
       const bufferElapsed = contextElapsed * playbackRateRef.current;
@@ -533,37 +606,50 @@ export default function AudioManipulator() {
       source.buffer = processedBuffer;
       source.playbackRate.value = effects.pitch;
 
-      const delayNode = offlineCtx.createDelay(2);
-      const delayFeedbackGain = offlineCtx.createGain();
-      const delayWetGain = offlineCtx.createGain();
+      // const delayNode = offlineCtx.createDelay(2);
+      // const delayFeedbackGain = offlineCtx.createGain();
+      // const delayWetGain = offlineCtx.createGain();
       const dryGain = offlineCtx.createGain();
-      const reverbWetGain = offlineCtx.createGain();
-
-      delayNode.delayTime.value = effects.delayTime;
-      delayFeedbackGain.gain.value = effects.delayFeedback;
-      delayWetGain.gain.value = effects.delayMix;
-      dryGain.gain.value =
-        1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-      reverbWetGain.gain.value = effects.reverbMix;
-
-      delayNode.connect(delayFeedbackGain);
-      delayFeedbackGain.connect(delayNode);
-      delayNode.connect(delayWetGain);
-
-      const reverb = createReverb(
-        offlineCtx,
-        effects.reverbRoomSize,
-        effects.reverbDecay
-      );
+      const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
+      const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
+      dryGain.gain.value = 1 - Math.max(activeDelayMix, activeReverbMix) * 0.5;
+      // const reverbWetGain = offlineCtx.createGain();
 
       source.connect(dryGain);
-      source.connect(delayNode);
-      source.connect(reverb.input);
-
       dryGain.connect(offlineCtx.destination);
-      delayWetGain.connect(offlineCtx.destination);
-      reverb.output.connect(reverbWetGain);
-      reverbWetGain.connect(offlineCtx.destination);
+
+      // DELAY EFFECT
+      if (effects.delayEnabled) {
+        const delayNode = offlineCtx.createDelay(2);
+        const delayFeedbackGain = offlineCtx.createGain();
+        const delayWetGain = offlineCtx.createGain();
+
+        delayNode.delayTime.value = effects.delayTime;
+        delayFeedbackGain.gain.value = effects.delayFeedback;
+        delayWetGain.gain.value = effects.delayMix;
+
+        delayNode.connect(delayFeedbackGain);
+        delayFeedbackGain.connect(delayNode);
+        delayNode.connect(delayWetGain);
+
+        source.connect(delayNode);
+        delayWetGain.connect(offlineCtx.destination);
+      }
+
+      // REVERB EFFECT
+      if (effects.reverbEnabled) {
+        const reverb = createReverb(
+          offlineCtx,
+          effects.reverbRoomSize,
+          effects.reverbDecay
+        );
+        const reverbWetGain = offlineCtx.createGain();
+        reverbWetGain.gain.value = effects.reverbMix;
+
+        source.connect(reverb.input);
+        reverb.output.connect(reverbWetGain);
+        reverbWetGain.connect(offlineCtx.destination);
+      }
 
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
@@ -626,37 +712,46 @@ export default function AudioManipulator() {
       source.buffer = clipBuffer;
       source.playbackRate.value = effects.pitch;
 
-      const delayNode = offlineCtx.createDelay(2);
-      const delayFeedbackGain = offlineCtx.createGain();
-      const delayWetGain = offlineCtx.createGain();
       const dryGain = offlineCtx.createGain();
-      const reverbWetGain = offlineCtx.createGain();
-
-      delayNode.delayTime.value = effects.delayTime;
-      delayFeedbackGain.gain.value = effects.delayFeedback;
-      delayWetGain.gain.value = effects.delayMix;
-      dryGain.gain.value =
-        1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-      reverbWetGain.gain.value = effects.reverbMix;
-
-      delayNode.connect(delayFeedbackGain);
-      delayFeedbackGain.connect(delayNode);
-      delayNode.connect(delayWetGain);
-
-      const reverb = createReverb(
-        offlineCtx,
-        effects.reverbRoomSize,
-        effects.reverbDecay
-      );
+      const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
+      const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
+      dryGain.gain.value = 1 - Math.max(activeDelayMix, activeReverbMix) * 0.5;
 
       source.connect(dryGain);
-      source.connect(delayNode);
-      source.connect(reverb.input);
-
       dryGain.connect(offlineCtx.destination);
-      delayWetGain.connect(offlineCtx.destination);
-      reverb.output.connect(reverbWetGain);
-      reverbWetGain.connect(offlineCtx.destination);
+
+      // DELAY EFFECT
+      if (effects.delayEnabled) {
+        const delayNode = offlineCtx.createDelay(2);
+        const delayFeedbackGain = offlineCtx.createGain();
+        const delayWetGain = offlineCtx.createGain();
+
+        delayNode.delayTime.value = effects.delayTime;
+        delayFeedbackGain.gain.value = effects.delayFeedback;
+        delayWetGain.gain.value = effects.delayMix;
+
+        delayNode.connect(delayFeedbackGain);
+        delayFeedbackGain.connect(delayNode);
+        delayNode.connect(delayWetGain);
+
+        source.connect(delayNode);
+        delayWetGain.connect(offlineCtx.destination);
+      }
+
+      // REVERB EFFECT
+      if (effects.reverbEnabled) {
+        const reverb = createReverb(
+          offlineCtx,
+          effects.reverbRoomSize,
+          effects.reverbDecay
+        );
+        const reverbWetGain = offlineCtx.createGain();
+        reverbWetGain.gain.value = effects.reverbMix;
+
+        source.connect(reverb.input);
+        reverb.output.connect(reverbWetGain);
+        reverbWetGain.connect(offlineCtx.destination);
+      }
 
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();

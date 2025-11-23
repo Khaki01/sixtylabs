@@ -100,6 +100,12 @@ export default function AudioManipulator() {
     filters: BiquadFilterNode[];
   } | null>(null);
   const reverbWetGainRef = useRef<GainNode | null>(null);
+  const tremoloNodeRef = useRef<{
+    lfo: OscillatorNode;
+    depth: GainNode;
+    amplitude: GainNode;
+  } | null>(null);
+  const tremoloWetGainRef = useRef<GainNode | null>(null);
 
   const [effects, setEffects] = useState({
     volume: 1.0,
@@ -112,12 +118,16 @@ export default function AudioManipulator() {
     reverbDecay: 0.5,
     reverbMix: 0,
     convolverMix: 0,
+    tremoloRate: 5,
+    tremoloDepth: 0.5,
+    tremoloMix: 0,
 
     // flags
     pitchEnabled: true,
     delayEnabled: false,
     reverbEnabled: false,
     convolverEnabled: false,
+    tremoloEnabled: false,
   });
 
   useEffect(() => {
@@ -153,6 +163,17 @@ export default function AudioManipulator() {
     reverbNodeRef.current.output.connect(reverbWetGainRef.current);
     reverbWetGainRef.current.connect(ctx.destination);
 
+    tremoloNodeRef.current = createTremolo(
+      ctx,
+      effects.tremoloRate,
+      effects.tremoloDepth
+    );
+    tremoloWetGainRef.current = ctx.createGain();
+    tremoloWetGainRef.current.gain.value = effects.tremoloMix;
+
+    tremoloNodeRef.current.amplitude.connect(tremoloWetGainRef.current);
+    tremoloWetGainRef.current.connect(ctx.destination);
+
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -169,6 +190,7 @@ export default function AudioManipulator() {
     effects.delayEnabled,
     effects.reverbEnabled,
     effects.convolverEnabled,
+    effects.tremoloEnabled,
   ]);
 
   useEffect(() => {
@@ -190,6 +212,26 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.reverbMix]);
+
+  useEffect(() => {
+    if (tremoloWetGainRef.current && audioContextRef.current) {
+      tremoloWetGainRef.current.gain.setTargetAtTime(
+        effects.tremoloMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.tremoloMix]);
+
+  useEffect(() => {
+    if (tremoloNodeRef.current && audioContextRef.current) {
+      const { lfo, depth } = tremoloNodeRef.current;
+      const currentTime = audioContextRef.current.currentTime;
+
+      lfo.frequency.setTargetAtTime(effects.tremoloRate, currentTime, 0.01);
+      depth.gain.setTargetAtTime(effects.tremoloDepth, currentTime, 0.01);
+    }
+  }, [effects.tremoloRate, effects.tremoloDepth]);
 
   useEffect(() => {
     if (reverbNodeRef.current && audioContextRef.current) {
@@ -492,6 +534,11 @@ export default function AudioManipulator() {
       sourceNodeRef.current.connect(convolverNodeRef.current);
     }
 
+    // TREMOLO EFFECT
+    if (effects.tremoloEnabled && tremoloNodeRef.current) {
+      sourceNodeRef.current.connect(tremoloNodeRef.current.amplitude);
+    }
+
     sourceNodeRef.current.start(0, bufferStartOffset);
     startTimeRef.current = audioContextRef.current.currentTime;
     lastPitchChangeTimeRef.current = audioContextRef.current.currentTime;
@@ -690,7 +737,7 @@ export default function AudioManipulator() {
         reverbWetGain.connect(offlineCtx.destination);
       }
 
-      // CONVOLVER EFFECY
+      // CONVOLVER EFFECT
       if (effects.convolverEnabled) {
         const convolverWetGain = offlineCtx.createGain();
 
@@ -702,6 +749,23 @@ export default function AudioManipulator() {
         convolver.connect(convolverWetGain);
         convolverWetGain.connect(offlineCtx.destination);
         convolverWetGain.connect(offlineCtx.destination);
+      }
+
+      // TREMOLO EFFECT
+      if (effects.tremoloEnabled) {
+        const tremoloWetGain = offlineCtx.createGain();
+        tremoloWetGain.gain.value = effects.tremoloMix;
+
+        const tremolo = createTremolo(
+          offlineCtx,
+          effects.tremoloRate,
+          effects.tremoloDepth
+        );
+
+        source.connect(tremolo.amplitude);
+
+        tremolo.amplitude.connect(tremoloWetGain);
+        tremoloWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);
@@ -819,6 +883,22 @@ export default function AudioManipulator() {
         convolverWetGain.connect(offlineCtx.destination);
       }
 
+      // TREMOLO EFFECT
+      if (effects.tremoloEnabled) {
+        const tremoloWetGain = offlineCtx.createGain();
+        tremoloWetGain.gain.value = effects.tremoloMix;
+
+        const tremolo = createTremolo(
+          offlineCtx,
+          effects.tremoloRate,
+          effects.tremoloDepth
+        );
+
+        source.connect(tremolo.amplitude);
+        tremolo.amplitude.connect(tremoloWetGain);
+        tremoloWetGain.connect(offlineCtx.destination);
+      }
+
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
 
@@ -826,7 +906,7 @@ export default function AudioManipulator() {
       const url = URL.createObjectURL(wavBlob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `fourpage-trimmed-${Date.now()}.wav`;
+      a.download = `fourpage-clip-${clip.id}-${Date.now()}.wav`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -983,6 +1063,38 @@ export default function AudioManipulator() {
       right[i] = lastOutR * envelope;
     }
     return impulse;
+  };
+
+  const createTremolo = (
+    ctx: AudioContext | OfflineAudioContext,
+    rate: number,
+    depth: number
+  ) => {
+    // Create LFO (Low Frequency Oscillator) to modulate amplitude
+    const lfo = ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = rate;
+
+    // Create depth control (how much the LFO affects the signal)
+    const depthGain = ctx.createGain();
+    depthGain.gain.value = depth;
+
+    // Create amplitude modulator
+    const amplitude = ctx.createGain();
+    amplitude.gain.value = 1.0 - depth * 0.5; // Offset so it oscillates around 1.0
+
+    // Connect LFO through depth control to amplitude modulator
+    lfo.connect(depthGain);
+    depthGain.connect(amplitude.gain);
+
+    // Start the LFO
+    lfo.start();
+
+    return {
+      lfo,
+      depth: depthGain,
+      amplitude,
+    };
   };
 
   const handleSaveProject = async () => {

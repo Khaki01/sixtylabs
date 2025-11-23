@@ -22,12 +22,16 @@ interface EffectsPanelProps {
     reverbDecay: number;
     reverbMix: number;
     convolverMix: number;
+    tremoloRate: number;
+    tremoloDepth: number;
+    tremoloMix: number;
 
     // flags
     pitchEnabled: boolean;
     delayEnabled: boolean;
     reverbEnabled: boolean;
     convolverEnabled: boolean;
+    tremoloEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -36,6 +40,7 @@ const AVAILABLE_EFFECTS = [
   { id: "delay", name: "Delay", number: "EE01" },
   { id: "reverb", name: "Reverb", number: "EE02" },
   { id: "convolver", name: "Convolver", number: "EE03" },
+  { id: "tremolo", name: "Tremolo", number: "EE04" },
 ];
 
 export default function EffectsPanel({
@@ -47,6 +52,7 @@ export default function EffectsPanel({
   const [delayEnabled, setDelayEnabled] = useState(false);
   const [reverbEnabled, setReverbEnabled] = useState(false);
   const [convolverEnabled, setConvolverEnabled] = useState(false);
+  const [tremoloEnabled, setTremoloEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -66,6 +72,18 @@ export default function EffectsPanel({
       setEffects({
         ...effects,
         reverbEnabled: false,
+      });
+    }
+    if (effectType === "convolver") {
+      setEffects({
+        ...effects,
+        convolverEnabled: false,
+      });
+    }
+    if (effectType === "tremolo") {
+      setEffects({
+        ...effects,
+        tremoloEnabled: false,
       });
     }
   };
@@ -106,6 +124,14 @@ export default function EffectsPanel({
     setEffects({
       ...effects,
       convolverEnabled: newEnabled,
+    });
+  };
+  const toggleTremolo = () => {
+    const newEnabled = !tremoloEnabled;
+    setTremoloEnabled(newEnabled);
+    setEffects({
+      ...effects,
+      tremoloEnabled: newEnabled,
     });
   };
 
@@ -377,6 +403,83 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!convolverEnabled}
+            />
+          </div>
+        </div>
+      )}
+      {enabledEffects.includes("tremolo") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleTremolo}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  tremoloEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE04
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Tremolo
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("tremolo")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Rate: {effects.tremoloRate.toFixed(1)} Hz
+            </label>
+            <Slider
+              value={[effects.tremoloRate]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, tremoloRate: value })
+              }
+              min={0.1}
+              max={20}
+              step={0.1}
+              disabled={!tremoloEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Depth: {Math.round(effects.tremoloDepth * 100)}%
+            </label>
+            <Slider
+              value={[effects.tremoloDepth]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, tremoloDepth: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!tremoloEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.tremoloMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.tremoloMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, tremoloMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!tremoloEnabled}
             />
           </div>
         </div>

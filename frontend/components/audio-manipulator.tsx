@@ -51,6 +51,7 @@ const SAMPLE_LIBRARY = [
 ];
 
 export default function AudioManipulator() {
+  const { theme, setTheme } = useTheme();
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
@@ -59,12 +60,18 @@ export default function AudioManipulator() {
   );
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isRendering, setIsRendering] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [clip, setClip] = useState<Clip | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -75,12 +82,15 @@ export default function AudioManipulator() {
   const playbackRateRef = useRef<number>(1);
   const animationFrameRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const delayNodeRef = useRef<DelayNode | null>(null);
   const delayFeedbackGainRef = useRef<GainNode | null>(null);
-  const delayWetGainRef = useRef<GainNode | null>(null);
+  const isLoopingRef = useRef(false);
+  const isManuallyStoppingRef = useRef(false);
 
   const gainNodeRef = useRef<GainNode | null>(null);
+  const delayWetGainRef = useRef<GainNode | null>(null);
+  const convolverNodeRef = useRef<ConvolverNode | null>(null);
+  const convolverWetGainRef = useRef<GainNode | null>(null);
 
   const reverbNodeRef = useRef<{
     input: GainNode;
@@ -101,21 +111,14 @@ export default function AudioManipulator() {
     reverbRoomSize: 0.5,
     reverbDecay: 0.5,
     reverbMix: 0,
+    convolverMix: 0,
+
+    // flags
     pitchEnabled: true,
     delayEnabled: false,
     reverbEnabled: false,
+    convolverEnabled: false,
   });
-
-  const isLoopingRef = useRef(false);
-  const isManuallyStoppingRef = useRef(false);
-
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(false);
-  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -129,6 +132,15 @@ export default function AudioManipulator() {
     gainNodeRef.current = ctx.createGain();
     gainNodeRef.current.gain.value = effects.volume;
     gainNodeRef.current.connect(ctx.destination);
+
+    convolverNodeRef.current = ctx.createConvolver();
+    convolverNodeRef.current.buffer = createImpulseResponse(ctx, 15, 2.5);
+
+    convolverWetGainRef.current = ctx.createGain();
+    convolverWetGainRef.current.gain.value = effects.convolverMix;
+
+    convolverNodeRef.current.connect(convolverWetGainRef.current);
+    convolverWetGainRef.current.connect(ctx.destination);
 
     reverbNodeRef.current = createReverb(
       ctx,
@@ -152,7 +164,12 @@ export default function AudioManipulator() {
   useEffect(() => {
     pauseAudio();
     playAudio(clip ? clip : undefined);
-  }, [effects.pitchEnabled, effects.delayEnabled, effects.reverbEnabled]);
+  }, [
+    effects.pitchEnabled,
+    effects.delayEnabled,
+    effects.reverbEnabled,
+    effects.convolverEnabled,
+  ]);
 
   useEffect(() => {
     if (gainNodeRef.current) {
@@ -210,6 +227,16 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.delayTime, isPlaying]);
+
+  useEffect(() => {
+    if (convolverWetGainRef.current && audioContextRef.current) {
+      convolverWetGainRef.current.gain.setTargetAtTime(
+        effects.convolverMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.convolverMix]);
 
   useEffect(() => {
     if (delayFeedbackGainRef.current && audioContextRef.current && isPlaying) {
@@ -391,6 +418,13 @@ export default function AudioManipulator() {
       sourceNodeRef.current.disconnect();
     }
 
+    // if (delayNodeRef.current) {
+    //   delayNodeRef.current.disconnect();
+    // }
+    // if (delayFeedbackGainRef.current) {
+    //   delayFeedbackGainRef.current.disconnect();
+    // }
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -451,6 +485,11 @@ export default function AudioManipulator() {
     // REVERB EFFECT
     if (effects.reverbEnabled && reverbNodeRef.current) {
       sourceNodeRef.current.connect(reverbNodeRef.current.input);
+    }
+
+    // CONVOLVER EFFECT
+    if (effects.convolverEnabled && convolverNodeRef.current) {
+      sourceNodeRef.current.connect(convolverNodeRef.current);
     }
 
     sourceNodeRef.current.start(0, bufferStartOffset);
@@ -651,6 +690,20 @@ export default function AudioManipulator() {
         reverbWetGain.connect(offlineCtx.destination);
       }
 
+      // CONVOLVER EFFECY
+      if (effects.convolverEnabled) {
+        const convolverWetGain = offlineCtx.createGain();
+
+        convolverWetGain.gain.value = effects.convolverMix;
+        const convolver = offlineCtx.createConvolver();
+        convolver.buffer = createImpulseResponse(offlineCtx, 15, 2.5);
+
+        source.connect(convolver);
+        convolver.connect(convolverWetGain);
+        convolverWetGain.connect(offlineCtx.destination);
+        convolverWetGain.connect(offlineCtx.destination);
+      }
+
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
 
@@ -751,6 +804,19 @@ export default function AudioManipulator() {
         source.connect(reverb.input);
         reverb.output.connect(reverbWetGain);
         reverbWetGain.connect(offlineCtx.destination);
+      }
+
+      // CONVOLVER EFFECT
+      if (effects.convolverEnabled) {
+        const convolverWetGain = offlineCtx.createGain();
+        convolverWetGain.gain.value = effects.convolverMix;
+
+        const convolver = offlineCtx.createConvolver();
+        convolver.buffer = createImpulseResponse(offlineCtx, 15, 2.5);
+
+        source.connect(convolver);
+        convolver.connect(convolverWetGain);
+        convolverWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);
@@ -883,6 +949,40 @@ export default function AudioManipulator() {
     compressor.connect(output);
 
     return { input, output, delays, gains, filters };
+  };
+
+  const createImpulseResponse = (
+    ctx: AudioContext | OfflineAudioContext,
+    duration: number,
+    decay: number
+  ) => {
+    const sampleRate = ctx.sampleRate;
+    const length = sampleRate * duration;
+    const impulse = ctx.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+
+    let lastOutL = 0;
+    let lastOutR = 0;
+    const filterCoef = 0.05; // Controls the "blur" amount (lower = more blurred/muffled)
+
+    for (let i = 0; i < length; i++) {
+      const rawNoiseL = Math.random() * 2 - 1;
+      const rawNoiseR = Math.random() * 2 - 1;
+
+      lastOutL = lastOutL + (rawNoiseL - lastOutL) * filterCoef;
+      lastOutR = lastOutR + (rawNoiseR - lastOutR) * filterCoef;
+
+      const fadeInDuration = sampleRate * 2.5; // 2.5 seconds fade in
+      const fadeIn = i < fadeInDuration ? Math.pow(i / fadeInDuration, 2) : 1;
+
+      // Exponential decay
+      const envelope = Math.pow(1 - i / length, decay) * fadeIn;
+
+      left[i] = lastOutL * envelope;
+      right[i] = lastOutR * envelope;
+    }
+    return impulse;
   };
 
   const handleSaveProject = async () => {

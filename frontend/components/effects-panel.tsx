@@ -21,11 +21,13 @@ interface EffectsPanelProps {
     reverbRoomSize: number;
     reverbDecay: number;
     reverbMix: number;
+    convolverMix: number;
 
     // flags
     pitchEnabled: boolean;
     delayEnabled: boolean;
     reverbEnabled: boolean;
+    convolverEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -33,6 +35,7 @@ interface EffectsPanelProps {
 const AVAILABLE_EFFECTS = [
   { id: "delay", name: "Delay", number: "EE01" },
   { id: "reverb", name: "Reverb", number: "EE02" },
+  { id: "convolver", name: "Convolver", number: "EE03" },
 ];
 
 export default function EffectsPanel({
@@ -43,6 +46,7 @@ export default function EffectsPanel({
   const [pitchTimeEnabled, setPitchTimeEnabled] = useState(true);
   const [delayEnabled, setDelayEnabled] = useState(false);
   const [reverbEnabled, setReverbEnabled] = useState(false);
+  const [convolverEnabled, setConvolverEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -92,6 +96,16 @@ export default function EffectsPanel({
     setEffects({
       ...effects,
       reverbEnabled: newEnabled,
+    });
+  };
+
+  const toggleConvolver = () => {
+    const newEnabled = !convolverEnabled;
+    setConvolverEnabled(newEnabled);
+
+    setEffects({
+      ...effects,
+      convolverEnabled: newEnabled,
     });
   };
 
@@ -317,6 +331,52 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!reverbEnabled}
+            />
+          </div>
+        </div>
+      )}
+
+      {enabledEffects.includes("convolver") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleConvolver}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  convolverEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE03
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Convolver
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("convolver")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.convolverMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.convolverMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, convolverMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!convolverEnabled}
             />
           </div>
         </div>

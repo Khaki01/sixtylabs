@@ -107,6 +107,10 @@ export default function AudioManipulator() {
   } | null>(null);
   const tremoloWetGainRef = useRef<GainNode | null>(null);
 
+  const bitcrushProcessorRef = useRef<AudioWorkletNode | null>(null);
+  const bitcrushWetGainRef = useRef<GainNode | null>(null);
+  const [workletLoaded, setWorkletLoaded] = useState(false);
+
   const [effects, setEffects] = useState({
     volume: 1.0,
     pitch: 1,
@@ -121,6 +125,9 @@ export default function AudioManipulator() {
     tremoloRate: 5,
     tremoloDepth: 0.5,
     tremoloMix: 0,
+    bitcrushBitDepth: 8,
+    bitcrushSampleRate: 0.5,
+    bitcrushMix: 0,
 
     // flags
     pitchEnabled: true,
@@ -128,6 +135,7 @@ export default function AudioManipulator() {
     reverbEnabled: false,
     convolverEnabled: false,
     tremoloEnabled: false,
+    bitcrushEnabled: false,
   });
 
   useEffect(() => {
@@ -174,6 +182,24 @@ export default function AudioManipulator() {
     tremoloNodeRef.current.amplitude.connect(tremoloWetGainRef.current);
     tremoloWetGainRef.current.connect(ctx.destination);
 
+    ctx.audioWorklet
+      .addModule("/bitcrush-processor.js")
+      .then(() => {
+        setWorkletLoaded(true);
+        bitcrushProcessorRef.current = new AudioWorkletNode(
+          ctx,
+          "bitcrush-processor"
+        );
+        bitcrushWetGainRef.current = ctx.createGain();
+        bitcrushWetGainRef.current.gain.value = effects.bitcrushMix; // use destructured variable
+
+        bitcrushProcessorRef.current.connect(bitcrushWetGainRef.current);
+        bitcrushWetGainRef.current.connect(ctx.destination);
+      })
+      .catch((error) => {
+        console.error("[v0] Error loading bitcrush worklet:", error);
+      });
+
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -191,6 +217,7 @@ export default function AudioManipulator() {
     effects.reverbEnabled,
     effects.convolverEnabled,
     effects.tremoloEnabled,
+    effects.bitcrushEnabled,
   ]);
 
   useEffect(() => {
@@ -259,6 +286,29 @@ export default function AudioManipulator() {
       });
     }
   }, [effects.reverbRoomSize, effects.reverbDecay]);
+
+  useEffect(() => {
+    if (bitcrushWetGainRef.current && audioContextRef.current) {
+      bitcrushWetGainRef.current.gain.setTargetAtTime(
+        effects.bitcrushMix, // use destructured variable
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.bitcrushMix]);
+
+  useEffect(() => {
+    if (bitcrushProcessorRef.current && workletLoaded) {
+      bitcrushProcessorRef.current.parameters.get("bitDepth")?.setValueAtTime(
+        effects.bitcrushBitDepth, // use destructured variable
+        audioContextRef.current!.currentTime
+      );
+      bitcrushProcessorRef.current.parameters.get("sampleRate")?.setValueAtTime(
+        effects.bitcrushSampleRate, // use destructured variable
+        audioContextRef.current!.currentTime
+      );
+    }
+  }, [effects.bitcrushBitDepth, effects.bitcrushSampleRate, workletLoaded]);
 
   useEffect(() => {
     if (delayNodeRef.current && audioContextRef.current && isPlaying) {
@@ -501,7 +551,9 @@ export default function AudioManipulator() {
     // DRY GAIN
     const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
     const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
-    dryGain.gain.value = 1 - Math.max(activeDelayMix, activeReverbMix) * 0.5;
+    const activeBitcrushMix = effects.bitcrushEnabled ? effects.bitcrushMix : 0;
+    dryGain.gain.value =
+      1 - Math.max(activeDelayMix, activeReverbMix, activeBitcrushMix) * 0.5;
 
     sourceNodeRef.current.connect(dryGain);
     dryGain.connect(gainNodeRef.current!);
@@ -537,6 +589,15 @@ export default function AudioManipulator() {
     // TREMOLO EFFECT
     if (effects.tremoloEnabled && tremoloNodeRef.current) {
       sourceNodeRef.current.connect(tremoloNodeRef.current.amplitude);
+    }
+
+    // BIT CRUSH EFFECT
+    if (
+      effects.bitcrushEnabled &&
+      bitcrushProcessorRef.current &&
+      workletLoaded
+    ) {
+      sourceNodeRef.current.connect(bitcrushProcessorRef.current);
     }
 
     sourceNodeRef.current.start(0, bufferStartOffset);
@@ -698,7 +759,11 @@ export default function AudioManipulator() {
       const dryGain = offlineCtx.createGain();
       const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
       const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
-      dryGain.gain.value = 1 - Math.max(activeDelayMix, activeReverbMix) * 0.5;
+      const activeBitcrushMix = effects.bitcrushEnabled
+        ? effects.bitcrushMix
+        : 0;
+      dryGain.gain.value =
+        1 - Math.max(activeDelayMix, activeReverbMix, activeBitcrushMix) * 0.5;
       // const reverbWetGain = offlineCtx.createGain();
 
       source.connect(dryGain);
@@ -768,6 +833,28 @@ export default function AudioManipulator() {
         tremoloWetGain.connect(offlineCtx.destination);
       }
 
+      // BIT CRUSH EFFECT
+      if (effects.bitcrushEnabled) {
+        const bitcrushWetGain = offlineCtx.createGain();
+        bitcrushWetGain.gain.value = effects.bitcrushMix;
+
+        const bitcrushProcessor = new AudioWorkletNode(
+          offlineCtx,
+          "bitcrush-processor"
+        );
+        bitcrushProcessor.parameters
+          .get("bitDepth")
+          ?.setValueAtTime(effects.bitcrushBitDepth, 0);
+        bitcrushProcessor.parameters
+          .get("sampleRate")
+          ?.setValueAtTime(effects.bitcrushSampleRate, 0);
+
+        source.connect(bitcrushProcessor);
+
+        bitcrushProcessor.connect(bitcrushWetGain);
+        bitcrushWetGain.connect(offlineCtx.destination);
+      }
+
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
 
@@ -832,7 +919,11 @@ export default function AudioManipulator() {
       const dryGain = offlineCtx.createGain();
       const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
       const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
-      dryGain.gain.value = 1 - Math.max(activeDelayMix, activeReverbMix) * 0.5;
+      const activeBitcrushMix = effects.bitcrushEnabled
+        ? effects.bitcrushMix
+        : 0;
+      dryGain.gain.value =
+        1 - Math.max(activeDelayMix, activeReverbMix, activeBitcrushMix) * 0.5;
 
       source.connect(dryGain);
       dryGain.connect(offlineCtx.destination);
@@ -897,6 +988,27 @@ export default function AudioManipulator() {
         source.connect(tremolo.amplitude);
         tremolo.amplitude.connect(tremoloWetGain);
         tremoloWetGain.connect(offlineCtx.destination);
+      }
+
+      // BIT CRUSH EFFECT
+      if (effects.bitcrushEnabled) {
+        const bitcrushWetGain = offlineCtx.createGain();
+        bitcrushWetGain.gain.value = effects.bitcrushMix;
+
+        const bitcrushProcessor = new AudioWorkletNode(
+          offlineCtx,
+          "bitcrush-processor"
+        );
+        bitcrushProcessor.parameters
+          .get("bitDepth")
+          ?.setValueAtTime(effects.bitcrushBitDepth, 0);
+        bitcrushProcessor.parameters
+          .get("sampleRate")
+          ?.setValueAtTime(effects.bitcrushSampleRate, 0);
+
+        source.connect(bitcrushProcessor);
+        bitcrushProcessor.connect(bitcrushWetGain);
+        bitcrushWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);

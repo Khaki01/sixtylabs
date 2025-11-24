@@ -25,6 +25,9 @@ interface EffectsPanelProps {
     tremoloRate: number;
     tremoloDepth: number;
     tremoloMix: number;
+    bitcrushBitDepth: number;
+    bitcrushSampleRate: number;
+    bitcrushMix: number;
 
     // flags
     pitchEnabled: boolean;
@@ -32,6 +35,7 @@ interface EffectsPanelProps {
     reverbEnabled: boolean;
     convolverEnabled: boolean;
     tremoloEnabled: boolean;
+    bitcrushEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -41,6 +45,7 @@ const AVAILABLE_EFFECTS = [
   { id: "reverb", name: "Reverb", number: "EE02" },
   { id: "convolver", name: "Convolver", number: "EE03" },
   { id: "tremolo", name: "Tremolo", number: "EE04" },
+  { id: "bitcrush", name: "Bitcrush", number: "EE05" },
 ];
 
 export default function EffectsPanel({
@@ -53,6 +58,7 @@ export default function EffectsPanel({
   const [reverbEnabled, setReverbEnabled] = useState(false);
   const [convolverEnabled, setConvolverEnabled] = useState(false);
   const [tremoloEnabled, setTremoloEnabled] = useState(false);
+  const [bitcrushEnabled, setBitcrushEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -84,6 +90,12 @@ export default function EffectsPanel({
       setEffects({
         ...effects,
         tremoloEnabled: false,
+      });
+    }
+    if (effectType === "bitcrush") {
+      setEffects({
+        ...effects,
+        bitcrushEnabled: false,
       });
     }
   };
@@ -132,6 +144,15 @@ export default function EffectsPanel({
     setEffects({
       ...effects,
       tremoloEnabled: newEnabled,
+    });
+  };
+
+  const toggleBitcrush = () => {
+    const newEnabled = !bitcrushEnabled;
+    setBitcrushEnabled(newEnabled);
+    setEffects({
+      ...effects,
+      bitcrushEnabled: newEnabled,
     });
   };
 
@@ -480,6 +501,83 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!tremoloEnabled}
+            />
+          </div>
+        </div>
+      )}
+      {enabledEffects.includes("bitcrush") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleBitcrush}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  bitcrushEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE05
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Bitcrush
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("bitcrush")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Bit Depth: {Math.round(effects.bitcrushBitDepth)}bit
+            </label>
+            <Slider
+              value={[effects.bitcrushBitDepth]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, bitcrushBitDepth: value })
+              }
+              min={1}
+              max={16}
+              step={1}
+              disabled={!bitcrushEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Sample Rate: {Math.round(effects.bitcrushSampleRate * 100)}%
+            </label>
+            <Slider
+              value={[effects.bitcrushSampleRate]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, bitcrushSampleRate: value })
+              }
+              min={0.01}
+              max={1}
+              step={0.01}
+              disabled={!bitcrushEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.bitcrushMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.bitcrushMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, bitcrushMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!bitcrushEnabled}
             />
           </div>
         </div>

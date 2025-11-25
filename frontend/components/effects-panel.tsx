@@ -28,6 +28,9 @@ interface EffectsPanelProps {
     bitcrushBitDepth: number;
     bitcrushSampleRate: number;
     bitcrushMix: number;
+    granularGrainSize: number;
+    granularChaos: number;
+    granularMix: number;
 
     // flags
     pitchEnabled: boolean;
@@ -36,6 +39,7 @@ interface EffectsPanelProps {
     convolverEnabled: boolean;
     tremoloEnabled: boolean;
     bitcrushEnabled: boolean;
+    granularEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -46,6 +50,7 @@ const AVAILABLE_EFFECTS = [
   { id: "convolver", name: "Convolver", number: "EE03" },
   { id: "tremolo", name: "Tremolo", number: "EE04" },
   { id: "bitcrush", name: "Bitcrush", number: "EE05" },
+  { id: "granular", name: "Granular", number: "EE06" },
 ];
 
 export default function EffectsPanel({
@@ -59,10 +64,53 @@ export default function EffectsPanel({
   const [convolverEnabled, setConvolverEnabled] = useState(false);
   const [tremoloEnabled, setTremoloEnabled] = useState(false);
   const [bitcrushEnabled, setBitcrushEnabled] = useState(false);
+  const [granularEnabled, setGranularEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
       setEnabledEffects([...enabledEffects, effectType]);
+      if (effectType === "delay") {
+        setDelayEnabled(true);
+        setEffects({
+          ...effects,
+          delayEnabled: true,
+        });
+      }
+      if (effectType === "reverb") {
+        setReverbEnabled(true);
+        setEffects({
+          ...effects,
+          reverbEnabled: true,
+        });
+      }
+      if (effectType === "convolver") {
+        setConvolverEnabled(true);
+        setEffects({
+          ...effects,
+          convolverEnabled: true,
+        });
+      }
+      if (effectType === "tremolo") {
+        setTremoloEnabled(true);
+        setEffects({
+          ...effects,
+          tremoloEnabled: true,
+        });
+      }
+      if (effectType === "bitcrush") {
+        setBitcrushEnabled(true);
+        setEffects({
+          ...effects,
+          bitcrushEnabled: true,
+        });
+      }
+      if (effectType === "granular") {
+        setGranularEnabled(true);
+        setEffects({
+          ...effects,
+          granularEnabled: true,
+        });
+      }
     }
   };
 
@@ -96,6 +144,12 @@ export default function EffectsPanel({
       setEffects({
         ...effects,
         bitcrushEnabled: false,
+      });
+    }
+    if (effectType === "granular") {
+      setEffects({
+        ...effects,
+        granularEnabled: false,
       });
     }
   };
@@ -153,6 +207,16 @@ export default function EffectsPanel({
     setEffects({
       ...effects,
       bitcrushEnabled: newEnabled,
+    });
+  };
+
+  const toggleGranular = () => {
+    const newEnabled = !granularEnabled;
+    setGranularEnabled(newEnabled);
+
+    setEffects({
+      ...effects,
+      granularEnabled: newEnabled,
     });
   };
 
@@ -578,6 +642,83 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!bitcrushEnabled}
+            />
+          </div>
+        </div>
+      )}
+      {enabledEffects.includes("granular") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleGranular}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  granularEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE06
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Granular
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("granular")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Grain Size: {Math.round(effects.granularGrainSize * 1000)}ms
+            </label>
+            <Slider
+              value={[effects.granularGrainSize]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, granularGrainSize: value })
+              }
+              min={0.01}
+              max={0.5}
+              step={0.01}
+              disabled={!granularEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Chaos: {Math.round(effects.granularChaos * 100)}%
+            </label>
+            <Slider
+              value={[effects.granularChaos]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, granularChaos: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!granularEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.granularMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.granularMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, granularMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!granularEnabled}
             />
           </div>
         </div>

@@ -50,6 +50,13 @@ const SAMPLE_LIBRARY = [
   { id: 8, name: "Synth Lead", author: "Analog Dreams", genre: "Synthwave" },
 ];
 
+const WINDOW_SIZE = 4096;
+const hanningWindow = new Float32Array(WINDOW_SIZE);
+for (let i = 0; i < WINDOW_SIZE; i++) {
+  hanningWindow[i] =
+    0.5 * (1 - Math.cos((2 * Math.PI * i) / (WINDOW_SIZE - 1)));
+}
+
 export default function AudioManipulator() {
   const { theme, setTheme } = useTheme();
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -92,6 +99,10 @@ export default function AudioManipulator() {
   const convolverNodeRef = useRef<ConvolverNode | null>(null);
   const convolverWetGainRef = useRef<GainNode | null>(null);
 
+  const granularGainRef = useRef<GainNode | null>(null);
+  const nextGrainTimeRef = useRef<number>(0);
+  const grainSchedulerTimerRef = useRef<number | null>(null);
+
   const reverbNodeRef = useRef<{
     input: GainNode;
     output: GainNode;
@@ -128,6 +139,10 @@ export default function AudioManipulator() {
     bitcrushBitDepth: 8,
     bitcrushSampleRate: 0.5,
     bitcrushMix: 0,
+    granularGrainSize: 0.1,
+    granularOverlap: 0.5,
+    granularChaos: 0.5,
+    granularMix: 0,
 
     // flags
     pitchEnabled: true,
@@ -136,7 +151,14 @@ export default function AudioManipulator() {
     convolverEnabled: false,
     tremoloEnabled: false,
     bitcrushEnabled: false,
+    granularEnabled: false,
   });
+
+  const effectsRef = useRef(effects);
+
+  useEffect(() => {
+    effectsRef.current = effects;
+  }, [effects]);
 
   useEffect(() => {
     setMounted(true);
@@ -150,6 +172,10 @@ export default function AudioManipulator() {
     gainNodeRef.current = ctx.createGain();
     gainNodeRef.current.gain.value = effects.volume;
     gainNodeRef.current.connect(ctx.destination);
+
+    granularGainRef.current = ctx.createGain();
+    granularGainRef.current.gain.value = effects.granularMix;
+    granularGainRef.current.connect(gainNodeRef.current);
 
     convolverNodeRef.current = ctx.createConvolver();
     convolverNodeRef.current.buffer = createImpulseResponse(ctx, 15, 2.5);
@@ -209,8 +235,10 @@ export default function AudioManipulator() {
 
   // effets handlers
   useEffect(() => {
-    pauseAudio();
-    playAudio(clip ? clip : undefined);
+    if (isPlaying) {
+      pauseAudio();
+      playAudio(clip ? clip : undefined);
+    }
   }, [
     effects.pitchEnabled,
     effects.delayEnabled,
@@ -218,6 +246,7 @@ export default function AudioManipulator() {
     effects.convolverEnabled,
     effects.tremoloEnabled,
     effects.bitcrushEnabled,
+    effects.granularEnabled,
   ]);
 
   useEffect(() => {
@@ -239,6 +268,16 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.reverbMix]);
+
+  useEffect(() => {
+    if (granularGainRef.current && audioContextRef.current) {
+      granularGainRef.current.gain.setTargetAtTime(
+        effects.granularMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.granularMix]);
 
   useEffect(() => {
     if (tremoloWetGainRef.current && audioContextRef.current) {
@@ -510,16 +549,21 @@ export default function AudioManipulator() {
       sourceNodeRef.current.disconnect();
     }
 
-    // if (delayNodeRef.current) {
-    //   delayNodeRef.current.disconnect();
-    // }
-    // if (delayFeedbackGainRef.current) {
-    //   delayFeedbackGainRef.current.disconnect();
-    // }
+    if (delayNodeRef.current) {
+      delayNodeRef.current.disconnect();
+    }
+    if (delayFeedbackGainRef.current) {
+      delayFeedbackGainRef.current.disconnect();
+    }
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
+    }
+
+    if (grainSchedulerTimerRef.current) {
+      cancelAnimationFrame(grainSchedulerTimerRef.current);
+      grainSchedulerTimerRef.current = null;
     }
 
     let bufferStartOffset = pauseTimeRef.current;
@@ -552,8 +596,18 @@ export default function AudioManipulator() {
     const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
     const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
     const activeBitcrushMix = effects.bitcrushEnabled ? effects.bitcrushMix : 0;
+    const activeGranularhMix = effects.granularEnabled
+      ? effects.granularMix
+      : 0;
     dryGain.gain.value =
-      1 - Math.max(activeDelayMix, activeReverbMix, activeBitcrushMix) * 0.5;
+      1 -
+      Math.max(
+        activeDelayMix,
+        activeReverbMix,
+        activeBitcrushMix,
+        activeGranularhMix
+      ) *
+        0.5;
 
     sourceNodeRef.current.connect(dryGain);
     dryGain.connect(gainNodeRef.current!);
@@ -607,6 +661,11 @@ export default function AudioManipulator() {
     playbackRateRef.current = effects.pitch;
     setIsPlaying(true);
 
+    if (effects.granularEnabled && effects.granularMix > 0) {
+      nextGrainTimeRef.current = ctx.currentTime;
+      scheduleGrains(bufferStartOffset, clipForPlayback);
+    }
+
     const updateTime = () => {
       if (audioContextRef.current && sourceNodeRef.current) {
         const contextElapsed =
@@ -638,6 +697,10 @@ export default function AudioManipulator() {
           } else {
             setIsPlaying(false);
             animationFrameRef.current = null;
+            if (grainSchedulerTimerRef.current) {
+              cancelAnimationFrame(grainSchedulerTimerRef.current);
+              grainSchedulerTimerRef.current = null;
+            }
             if (delayNodeRef.current) {
               delayNodeRef.current.disconnect();
               delayNodeRef.current = null;
@@ -674,6 +737,90 @@ export default function AudioManipulator() {
     animationFrameRef.current = requestAnimationFrame(updateTime);
   };
 
+  const scheduleGrains = (startOffset: number, clip?: Clip | null) => {
+    if (
+      !audioContextRef.current ||
+      !processedBuffer ||
+      !granularGainRef.current ||
+      !isPlaying
+    )
+      return;
+
+    const ctx = audioContextRef.current;
+    const lookahead = 0.1; // 100ms lookahead
+
+    const currentEffects = effectsRef.current;
+
+    while (nextGrainTimeRef.current < ctx.currentTime + lookahead) {
+      const contextElapsed =
+        nextGrainTimeRef.current - lastPitchChangeTimeRef.current;
+      const bufferElapsed = contextElapsed * playbackRateRef.current;
+      const currentBufferPosition =
+        bufferPositionAtLastChangeRef.current + bufferElapsed;
+
+      const chaosOffset =
+        (Math.random() * 2 - 1) * currentEffects.granularChaos * 0.5; // +/- 0.5s max chaos
+      let grainPosition = currentBufferPosition + chaosOffset;
+
+      if (clip) {
+        grainPosition = Math.max(
+          clip.startTime,
+          Math.min(
+            clip.endTime - currentEffects.granularGrainSize,
+            grainPosition
+          )
+        );
+      } else {
+        grainPosition = Math.max(
+          0,
+          Math.min(duration - currentEffects.granularGrainSize, grainPosition)
+        );
+      }
+
+      const grainSource = ctx.createBufferSource();
+      grainSource.buffer = processedBuffer;
+      grainSource.playbackRate.value = currentEffects.pitch;
+
+      const grainGain = ctx.createGain();
+
+      // setValueCurveAtTime applies the window shape over the duration of the grain
+      try {
+        grainGain.gain.setValueCurveAtTime(
+          hanningWindow,
+          nextGrainTimeRef.current,
+          currentEffects.granularGrainSize
+        );
+      } catch (e) {
+        // Fallback for edge cases where duration might be invalid
+        grainGain.gain.setValueAtTime(0, nextGrainTimeRef.current);
+        grainGain.gain.linearRampToValueAtTime(
+          1,
+          nextGrainTimeRef.current + currentEffects.granularGrainSize * 0.5
+        );
+        grainGain.gain.linearRampToValueAtTime(
+          0,
+          nextGrainTimeRef.current + currentEffects.granularGrainSize
+        );
+      }
+
+      grainSource.connect(grainGain);
+      grainGain.connect(granularGainRef.current);
+
+      grainSource.start(
+        nextGrainTimeRef.current,
+        grainPosition,
+        currentEffects.granularGrainSize + 0.03
+      );
+
+      const interval = currentEffects.granularGrainSize * 0.5;
+      nextGrainTimeRef.current += Math.max(0.01, interval); // Minimum 10ms interval
+    }
+
+    grainSchedulerTimerRef.current = requestAnimationFrame(() =>
+      scheduleGrains(startOffset, clip)
+    );
+  };
+
   const pauseAudio = () => {
     if (sourceNodeRef.current && audioContextRef.current) {
       isManuallyStoppingRef.current = true;
@@ -681,6 +828,11 @@ export default function AudioManipulator() {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
+      }
+
+      if (grainSchedulerTimerRef.current) {
+        cancelAnimationFrame(grainSchedulerTimerRef.current);
+        grainSchedulerTimerRef.current = null;
       }
 
       sourceNodeRef.current.stop();
@@ -723,6 +875,10 @@ export default function AudioManipulator() {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
+    }
+    if (grainSchedulerTimerRef.current) {
+      cancelAnimationFrame(grainSchedulerTimerRef.current);
+      grainSchedulerTimerRef.current = null;
     }
     setIsPlaying(false);
     setCurrentTime(0);
@@ -1043,6 +1199,11 @@ export default function AudioManipulator() {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
+    }
+
+    if (grainSchedulerTimerRef.current) {
+      cancelAnimationFrame(grainSchedulerTimerRef.current);
+      grainSchedulerTimerRef.current = null;
     }
 
     if (effects.reverse) {

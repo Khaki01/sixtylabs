@@ -31,6 +31,9 @@ interface EffectsPanelProps {
     granularGrainSize: number;
     granularChaos: number;
     granularMix: number;
+    radioDistortion: number;
+    radioStatic: number;
+    radioMix: number;
 
     // flags
     pitchEnabled: boolean;
@@ -40,6 +43,7 @@ interface EffectsPanelProps {
     tremoloEnabled: boolean;
     bitcrushEnabled: boolean;
     granularEnabled: boolean;
+    radioEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -51,6 +55,7 @@ const AVAILABLE_EFFECTS = [
   { id: "tremolo", name: "Tremolo", number: "EE04" },
   { id: "bitcrush", name: "Bitcrush", number: "EE05" },
   { id: "granular", name: "Granular", number: "EE06" },
+  { id: "radio", name: "Static Distortion", number: "EE07" },
 ];
 
 export default function EffectsPanel({
@@ -65,6 +70,7 @@ export default function EffectsPanel({
   const [tremoloEnabled, setTremoloEnabled] = useState(false);
   const [bitcrushEnabled, setBitcrushEnabled] = useState(false);
   const [granularEnabled, setGranularEnabled] = useState(false);
+  const [radioEnabled, setRadioEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -111,6 +117,13 @@ export default function EffectsPanel({
           granularEnabled: true,
         });
       }
+      if (effectType === "radio") {
+        setRadioEnabled(true);
+        setEffects({
+          ...effects,
+          radioEnabled: true,
+        });
+      }
     }
   };
 
@@ -150,6 +163,12 @@ export default function EffectsPanel({
       setEffects({
         ...effects,
         granularEnabled: false,
+      });
+    }
+    if (effectType === "radio") {
+      setEffects({
+        ...effects,
+        radioEnabled: false,
       });
     }
   };
@@ -192,6 +211,7 @@ export default function EffectsPanel({
       convolverEnabled: newEnabled,
     });
   };
+
   const toggleTremolo = () => {
     const newEnabled = !tremoloEnabled;
     setTremoloEnabled(newEnabled);
@@ -217,6 +237,16 @@ export default function EffectsPanel({
     setEffects({
       ...effects,
       granularEnabled: newEnabled,
+    });
+  };
+
+  const toggleRadio = () => {
+    const newEnabled = !radioEnabled;
+    setRadioEnabled(newEnabled);
+
+    setEffects({
+      ...effects,
+      radioEnabled: newEnabled,
     });
   };
 
@@ -719,6 +749,84 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!granularEnabled}
+            />
+          </div>
+        </div>
+      )}
+
+      {enabledEffects.includes("radio") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleRadio}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  radioEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE07
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Static Distortion
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("radio")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Distortion: {Math.round(effects.radioDistortion * 100)}%
+            </label>
+            <Slider
+              value={[effects.radioDistortion]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, radioDistortion: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!radioEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Static: {Math.round(effects.radioStatic * 100)}%
+            </label>
+            <Slider
+              value={[effects.radioStatic]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, radioStatic: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!radioEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.radioMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.radioMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, radioMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!radioEnabled}
             />
           </div>
         </div>

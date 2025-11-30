@@ -122,6 +122,10 @@ export default function AudioManipulator() {
   const bitcrushWetGainRef = useRef<GainNode | null>(null);
   const [workletLoaded, setWorkletLoaded] = useState(false);
 
+  const radioProcessorRef = useRef<AudioWorkletNode | null>(null);
+  const radioWetGainRef = useRef<GainNode | null>(null);
+  const [radioWorkletLoaded, setRadioWorkletLoaded] = useState(false);
+
   const [effects, setEffects] = useState({
     volume: 1.0,
     pitch: 1,
@@ -131,18 +135,21 @@ export default function AudioManipulator() {
     delayMix: 0.5,
     reverbRoomSize: 0.5,
     reverbDecay: 0.5,
-    reverbMix: 0,
-    convolverMix: 0,
+    reverbMix: 0.5,
+    convolverMix: 0.5,
     tremoloRate: 5,
     tremoloDepth: 0.5,
-    tremoloMix: 0,
+    tremoloMix: 0.5,
     bitcrushBitDepth: 8,
     bitcrushSampleRate: 0.5,
-    bitcrushMix: 0,
+    bitcrushMix: 0.5,
     granularGrainSize: 0.1,
     granularOverlap: 0.5,
     granularChaos: 0.5,
-    granularMix: 0,
+    granularMix: 0.5,
+    radioDistortion: 0.5,
+    radioStatic: 0.3,
+    radioMix: 0.5,
 
     // flags
     pitchEnabled: true,
@@ -152,6 +159,7 @@ export default function AudioManipulator() {
     tremoloEnabled: false,
     bitcrushEnabled: false,
     granularEnabled: false,
+    radioEnabled: false,
   });
 
   const effectsRef = useRef(effects);
@@ -226,6 +234,30 @@ export default function AudioManipulator() {
         console.error("[v0] Error loading bitcrush worklet:", error);
       });
 
+    ctx.audioWorklet
+      .addModule("/radio-processor.js")
+      .then(() => {
+        setRadioWorkletLoaded(true);
+        radioProcessorRef.current = new AudioWorkletNode(
+          ctx,
+          "radio-processor"
+        );
+        radioWetGainRef.current = ctx.createGain();
+        radioWetGainRef.current.gain.value = effects.radioMix;
+
+        radioProcessorRef.current.port.onmessage = (event) => {
+          if (event.data.type === "debug") {
+            console.log("[v0] Radio processor:", event.data);
+          }
+        };
+
+        radioProcessorRef.current.connect(radioWetGainRef.current);
+        radioWetGainRef.current.connect(ctx.destination);
+      })
+      .catch((error) => {
+        console.error("[v0] Error loading radio worklet:", error);
+      });
+
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -247,6 +279,7 @@ export default function AudioManipulator() {
     effects.tremoloEnabled,
     effects.bitcrushEnabled,
     effects.granularEnabled,
+    effects.radioEnabled,
   ]);
 
   useEffect(() => {
@@ -337,6 +370,16 @@ export default function AudioManipulator() {
   }, [effects.bitcrushMix]);
 
   useEffect(() => {
+    if (radioWetGainRef.current && audioContextRef.current) {
+      radioWetGainRef.current.gain.setTargetAtTime(
+        effects.radioMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.radioMix]);
+
+  useEffect(() => {
     if (bitcrushProcessorRef.current && workletLoaded) {
       bitcrushProcessorRef.current.parameters.get("bitDepth")?.setValueAtTime(
         effects.bitcrushBitDepth, // use destructured variable
@@ -348,6 +391,23 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.bitcrushBitDepth, effects.bitcrushSampleRate, workletLoaded]);
+
+  useEffect(() => {
+    if (radioProcessorRef.current && radioWorkletLoaded) {
+      radioProcessorRef.current.parameters
+        .get("distortion")
+        ?.setValueAtTime(
+          effects.radioDistortion,
+          audioContextRef.current!.currentTime
+        );
+      radioProcessorRef.current.parameters
+        .get("static")
+        ?.setValueAtTime(
+          effects.radioStatic,
+          audioContextRef.current!.currentTime
+        );
+    }
+  }, [effects.radioDistortion, effects.radioStatic, radioWorkletLoaded]);
 
   useEffect(() => {
     if (delayNodeRef.current && audioContextRef.current && isPlaying) {
@@ -596,21 +656,32 @@ export default function AudioManipulator() {
     const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
     const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
     const activeBitcrushMix = effects.bitcrushEnabled ? effects.bitcrushMix : 0;
-    const activeGranularhMix = effects.granularEnabled
-      ? effects.granularMix
+    const activeGranularMix = effects.granularEnabled ? effects.granularMix : 0;
+    const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
+    const activeConvolverMix = effects.convolverEnabled
+      ? effects.convolverMix
       : 0;
+    const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
+
     dryGain.gain.value =
       1 -
       Math.max(
         activeDelayMix,
         activeReverbMix,
         activeBitcrushMix,
-        activeGranularhMix
+        activeGranularMix,
+        activeRadioMix,
+        activeConvolverMix,
+        activeTremoloMix
       ) *
         0.5;
 
-    sourceNodeRef.current.connect(dryGain);
-    dryGain.connect(gainNodeRef.current!);
+    // sourceNodeRef.current.connect(dryGain);
+    // dryGain.connect(gainNodeRef.current!);
+    if (!effects.granularEnabled) {
+      sourceNodeRef.current.connect(dryGain);
+      dryGain.connect(gainNodeRef.current!);
+    }
 
     // DELAY EFFECT
     if (effects.delayEnabled) {
@@ -654,7 +725,27 @@ export default function AudioManipulator() {
       sourceNodeRef.current.connect(bitcrushProcessorRef.current);
     }
 
+    // RADIO EFFECT
+    if (
+      effects.radioEnabled &&
+      radioProcessorRef.current &&
+      radioWorkletLoaded
+    ) {
+      console.log(
+        "[v0] Connecting radio effect, mix:",
+        effects.radioMix,
+        "distortion:",
+        effects.radioDistortion,
+        "static:",
+        effects.radioStatic
+      );
+      sourceNodeRef.current.connect(radioProcessorRef.current);
+    }
+
     sourceNodeRef.current.start(0, bufferStartOffset);
+    // if (!effects.granularEnabled) {
+    //   sourceNodeRef.current.start(0, bufferStartOffset);
+    // }
     startTimeRef.current = audioContextRef.current.currentTime;
     lastPitchChangeTimeRef.current = audioContextRef.current.currentTime;
     bufferPositionAtLastChangeRef.current = bufferStartOffset;
@@ -713,8 +804,10 @@ export default function AudioManipulator() {
               delayWetGainRef.current.disconnect();
               delayWetGainRef.current = null;
             }
-            sourceNodeRef.current.stop();
-            sourceNodeRef.current.disconnect();
+            if (sourceNodeRef.current) {
+              sourceNodeRef.current.stop();
+              sourceNodeRef.current.disconnect();
+            }
             setSelectedClipId(null);
             if (clipForPlayback) {
               setCurrentTime(
@@ -834,9 +927,10 @@ export default function AudioManipulator() {
         cancelAnimationFrame(grainSchedulerTimerRef.current);
         grainSchedulerTimerRef.current = null;
       }
-
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+      }
 
       if (delayNodeRef.current) {
         delayNodeRef.current.disconnect();
@@ -918,8 +1012,22 @@ export default function AudioManipulator() {
       const activeBitcrushMix = effects.bitcrushEnabled
         ? effects.bitcrushMix
         : 0;
+      const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
+      const activeConvolverMix = effects.convolverEnabled
+        ? effects.convolverMix
+        : 0;
+      const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
       dryGain.gain.value =
-        1 - Math.max(activeDelayMix, activeReverbMix, activeBitcrushMix) * 0.5;
+        1 -
+        Math.max(
+          activeDelayMix,
+          activeReverbMix,
+          activeBitcrushMix,
+          activeRadioMix,
+          activeConvolverMix,
+          activeTremoloMix
+        ) *
+          0.5;
       // const reverbWetGain = offlineCtx.createGain();
 
       source.connect(dryGain);
@@ -969,7 +1077,6 @@ export default function AudioManipulator() {
         source.connect(convolver);
         convolver.connect(convolverWetGain);
         convolverWetGain.connect(offlineCtx.destination);
-        convolverWetGain.connect(offlineCtx.destination);
       }
 
       // TREMOLO EFFECT
@@ -1009,6 +1116,27 @@ export default function AudioManipulator() {
 
         bitcrushProcessor.connect(bitcrushWetGain);
         bitcrushWetGain.connect(offlineCtx.destination);
+      }
+
+      // RADIO EFFECT
+      if (effects.radioEnabled) {
+        const radioWetGain = offlineCtx.createGain();
+        radioWetGain.gain.value = effects.radioMix;
+
+        const radioProcessor = new AudioWorkletNode(
+          offlineCtx,
+          "radio-processor"
+        );
+        radioProcessor.parameters
+          .get("distortion")
+          ?.setValueAtTime(effects.radioDistortion, 0);
+        radioProcessor.parameters
+          .get("static")
+          ?.setValueAtTime(effects.radioStatic, 0);
+
+        source.connect(radioProcessor);
+        radioProcessor.connect(radioWetGain);
+        radioWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);
@@ -1078,8 +1206,16 @@ export default function AudioManipulator() {
       const activeBitcrushMix = effects.bitcrushEnabled
         ? effects.bitcrushMix
         : 0;
+      const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
       dryGain.gain.value =
-        1 - Math.max(activeDelayMix, activeReverbMix, activeBitcrushMix) * 0.5;
+        1 -
+        Math.max(
+          activeDelayMix,
+          activeReverbMix,
+          activeBitcrushMix,
+          activeRadioMix
+        ) *
+          0.5;
 
       source.connect(dryGain);
       dryGain.connect(offlineCtx.destination);
@@ -1165,6 +1301,27 @@ export default function AudioManipulator() {
         source.connect(bitcrushProcessor);
         bitcrushProcessor.connect(bitcrushWetGain);
         bitcrushWetGain.connect(offlineCtx.destination);
+      }
+
+      // RADIO EFFECT
+      if (effects.radioEnabled) {
+        const radioWetGain = offlineCtx.createGain();
+        radioWetGain.gain.value = effects.radioMix;
+
+        const radioProcessor = new AudioWorkletNode(
+          offlineCtx,
+          "radio-processor"
+        );
+        radioProcessor.parameters
+          .get("distortion")
+          ?.setValueAtTime(effects.radioDistortion, 0);
+        radioProcessor.parameters
+          .get("static")
+          ?.setValueAtTime(effects.radioStatic, 0);
+
+        source.connect(radioProcessor);
+        radioProcessor.connect(radioWetGain);
+        radioWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);

@@ -126,6 +126,10 @@ export default function AudioManipulator() {
   const radioWetGainRef = useRef<GainNode | null>(null);
   const [radioWorkletLoaded, setRadioWorkletLoaded] = useState(false);
 
+  const drunkProcessorRef = useRef<AudioWorkletNode | null>(null);
+  const drunkWetGainRef = useRef<GainNode | null>(null);
+  const [drunkWorkletLoaded, setDrunkWorkletLoaded] = useState(false);
+
   const [effects, setEffects] = useState({
     volume: 1.0,
     pitch: 1,
@@ -150,6 +154,9 @@ export default function AudioManipulator() {
     radioDistortion: 0.5,
     radioStatic: 0.3,
     radioMix: 0.5,
+    drunkWobble: 0.5,
+    drunkSpeed: 0.5,
+    drunkMix: 0.5,
 
     // flags
     pitchEnabled: true,
@@ -160,6 +167,7 @@ export default function AudioManipulator() {
     bitcrushEnabled: false,
     granularEnabled: false,
     radioEnabled: false,
+    drunkEnabled: false,
   });
 
   const effectsRef = useRef(effects);
@@ -258,6 +266,24 @@ export default function AudioManipulator() {
         console.error("[v0] Error loading radio worklet:", error);
       });
 
+    ctx.audioWorklet
+      .addModule("/drunk-processor.js")
+      .then(() => {
+        setDrunkWorkletLoaded(true);
+        drunkProcessorRef.current = new AudioWorkletNode(
+          ctx,
+          "drunk-processor"
+        );
+        drunkWetGainRef.current = ctx.createGain();
+        drunkWetGainRef.current.gain.value = effects.drunkMix;
+
+        drunkProcessorRef.current.connect(drunkWetGainRef.current);
+        drunkWetGainRef.current.connect(ctx.destination);
+      })
+      .catch((error) => {
+        console.error("[v0] Error loading drunk worklet:", error);
+      });
+
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -280,6 +306,7 @@ export default function AudioManipulator() {
     effects.bitcrushEnabled,
     effects.granularEnabled,
     effects.radioEnabled,
+    effects.drunkEnabled,
   ]);
 
   useEffect(() => {
@@ -378,6 +405,33 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.radioMix]);
+
+  useEffect(() => {
+    if (drunkWetGainRef.current && audioContextRef.current) {
+      drunkWetGainRef.current.gain.setTargetAtTime(
+        effects.drunkMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.drunkMix]);
+
+  useEffect(() => {
+    if (drunkProcessorRef.current && drunkWorkletLoaded) {
+      drunkProcessorRef.current.parameters
+        .get("wobble")
+        ?.setValueAtTime(
+          effects.drunkWobble,
+          audioContextRef.current!.currentTime
+        );
+      drunkProcessorRef.current.parameters
+        .get("speed")
+        ?.setValueAtTime(
+          effects.drunkSpeed,
+          audioContextRef.current!.currentTime
+        );
+    }
+  }, [effects.drunkWobble, effects.drunkSpeed, drunkWorkletLoaded]);
 
   useEffect(() => {
     if (bitcrushProcessorRef.current && workletLoaded) {
@@ -662,6 +716,7 @@ export default function AudioManipulator() {
       ? effects.convolverMix
       : 0;
     const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
+    const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
 
     dryGain.gain.value =
       1 -
@@ -672,7 +727,8 @@ export default function AudioManipulator() {
         activeGranularMix,
         activeRadioMix,
         activeConvolverMix,
-        activeTremoloMix
+        activeTremoloMix,
+        activeDrunkMix
       ) *
         0.5;
 
@@ -731,15 +787,16 @@ export default function AudioManipulator() {
       radioProcessorRef.current &&
       radioWorkletLoaded
     ) {
-      console.log(
-        "[v0] Connecting radio effect, mix:",
-        effects.radioMix,
-        "distortion:",
-        effects.radioDistortion,
-        "static:",
-        effects.radioStatic
-      );
       sourceNodeRef.current.connect(radioProcessorRef.current);
+    }
+
+    // DRUNK EFFECT
+    if (
+      effects.drunkEnabled &&
+      drunkProcessorRef.current &&
+      drunkWorkletLoaded
+    ) {
+      sourceNodeRef.current.connect(drunkProcessorRef.current);
     }
 
     sourceNodeRef.current.start(0, bufferStartOffset);
@@ -1017,6 +1074,7 @@ export default function AudioManipulator() {
         ? effects.convolverMix
         : 0;
       const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
+      const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
       dryGain.gain.value =
         1 -
         Math.max(
@@ -1025,7 +1083,8 @@ export default function AudioManipulator() {
           activeBitcrushMix,
           activeRadioMix,
           activeConvolverMix,
-          activeTremoloMix
+          activeTremoloMix,
+          activeDrunkMix
         ) *
           0.5;
       // const reverbWetGain = offlineCtx.createGain();
@@ -1137,6 +1196,27 @@ export default function AudioManipulator() {
         source.connect(radioProcessor);
         radioProcessor.connect(radioWetGain);
         radioWetGain.connect(offlineCtx.destination);
+      }
+
+      // DRUNK EFFECT
+      if (effects.drunkEnabled) {
+        const drunkWetGain = offlineCtx.createGain();
+        drunkWetGain.gain.value = effects.drunkMix;
+
+        const drunkProcessor = new AudioWorkletNode(
+          offlineCtx,
+          "drunk-processor"
+        );
+        drunkProcessor.parameters
+          .get("wobble")
+          ?.setValueAtTime(effects.drunkWobble, 0);
+        drunkProcessor.parameters
+          .get("speed")
+          ?.setValueAtTime(effects.drunkSpeed, 0);
+
+        source.connect(drunkProcessor);
+        drunkProcessor.connect(drunkWetGain);
+        drunkWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);
@@ -1322,6 +1402,27 @@ export default function AudioManipulator() {
         source.connect(radioProcessor);
         radioProcessor.connect(radioWetGain);
         radioWetGain.connect(offlineCtx.destination);
+      }
+
+      // DRUNK EFFECT
+      if (effects.drunkEnabled) {
+        const drunkWetGain = offlineCtx.createGain();
+        drunkWetGain.gain.value = effects.drunkMix;
+
+        const drunkProcessor = new AudioWorkletNode(
+          offlineCtx,
+          "drunk-processor"
+        );
+        drunkProcessor.parameters
+          .get("wobble")
+          ?.setValueAtTime(effects.drunkWobble, 0);
+        drunkProcessor.parameters
+          .get("speed")
+          ?.setValueAtTime(effects.drunkSpeed, 0);
+
+        source.connect(drunkProcessor);
+        drunkProcessor.connect(drunkWetGain);
+        drunkWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);

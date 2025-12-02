@@ -34,6 +34,9 @@ interface EffectsPanelProps {
     radioDistortion: number;
     radioStatic: number;
     radioMix: number;
+    drunkWobble: number;
+    drunkSpeed: number;
+    drunkMix: number;
 
     // flags
     pitchEnabled: boolean;
@@ -44,6 +47,7 @@ interface EffectsPanelProps {
     bitcrushEnabled: boolean;
     granularEnabled: boolean;
     radioEnabled: boolean;
+    drunkEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -56,6 +60,7 @@ const AVAILABLE_EFFECTS = [
   { id: "bitcrush", name: "Bitcrush", number: "EE05" },
   { id: "granular", name: "Granular", number: "EE06" },
   { id: "radio", name: "Static Distortion", number: "EE07" },
+  { id: "drunk", name: "Drunk", number: "EE08" },
 ];
 
 export default function EffectsPanel({
@@ -71,6 +76,7 @@ export default function EffectsPanel({
   const [bitcrushEnabled, setBitcrushEnabled] = useState(false);
   const [granularEnabled, setGranularEnabled] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(false);
+  const [drunkEnabled, setDrunkEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -124,6 +130,13 @@ export default function EffectsPanel({
           radioEnabled: true,
         });
       }
+      if (effectType === "drunk") {
+        setDrunkEnabled(true);
+        setEffects({
+          ...effects,
+          drunkEnabled: true,
+        });
+      }
     }
   };
 
@@ -169,6 +182,12 @@ export default function EffectsPanel({
       setEffects({
         ...effects,
         radioEnabled: false,
+      });
+    }
+    if (effectType === "drunk") {
+      setEffects({
+        ...effects,
+        drunkEnabled: false,
       });
     }
   };
@@ -247,6 +266,16 @@ export default function EffectsPanel({
     setEffects({
       ...effects,
       radioEnabled: newEnabled,
+    });
+  };
+
+  const toggleDrunk = () => {
+    const newEnabled = !drunkEnabled;
+    setDrunkEnabled(newEnabled);
+
+    setEffects({
+      ...effects,
+      drunkEnabled: newEnabled,
     });
   };
 
@@ -827,6 +856,84 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!radioEnabled}
+            />
+          </div>
+        </div>
+      )}
+
+      {enabledEffects.includes("drunk") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleDrunk}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  drunkEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE08
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                Drunk
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("drunk")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Wobble: {effects.drunkWobble.toFixed(2)}
+            </label>
+            <Slider
+              value={[effects.drunkWobble]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, drunkWobble: value })
+              }
+              min={0.1}
+              max={2}
+              step={0.01}
+              disabled={!drunkEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Speed: {effects.drunkSpeed.toFixed(2)} Hz
+            </label>
+            <Slider
+              value={[effects.drunkSpeed]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, drunkSpeed: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!drunkEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.drunkMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.drunkMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, drunkMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!drunkEnabled}
             />
           </div>
         </div>

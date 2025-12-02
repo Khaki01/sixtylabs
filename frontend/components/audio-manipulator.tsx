@@ -130,6 +130,18 @@ export default function AudioManipulator() {
   const drunkWetGainRef = useRef<GainNode | null>(null);
   const [drunkWorkletLoaded, setDrunkWorkletLoaded] = useState(false);
 
+  const eqNodeRef = useRef<{
+    lowLP: BiquadFilterNode[]; // Array of 4 lowpass filters cascaded
+    midLP: BiquadFilterNode[]; // Array of 4 lowpass filters for mid band
+    midHP: BiquadFilterNode[]; // Array of 4 highpass filters for mid band
+    highHP: BiquadFilterNode[]; // Array of 4 highpass filters cascaded
+    lowGain: GainNode;
+    midGain: GainNode;
+    highGain: GainNode;
+    output: GainNode;
+  } | null>(null);
+  const eqWetGainRef = useRef<GainNode | null>(null);
+
   const [effects, setEffects] = useState({
     volume: 1.0,
     pitch: 1,
@@ -144,6 +156,10 @@ export default function AudioManipulator() {
     tremoloRate: 5,
     tremoloDepth: 0.5,
     tremoloMix: 0.5,
+    eqLowGain: 1,
+    eqMidGain: 1,
+    eqHighGain: 1,
+    eqMix: 1.0,
     bitcrushBitDepth: 8,
     bitcrushSampleRate: 0.5,
     bitcrushMix: 0.5,
@@ -157,6 +173,7 @@ export default function AudioManipulator() {
     drunkWobble: 0.5,
     drunkSpeed: 0.5,
     drunkMix: 0.5,
+    granularPitch: 1,
 
     // flags
     pitchEnabled: true,
@@ -168,6 +185,7 @@ export default function AudioManipulator() {
     granularEnabled: false,
     radioEnabled: false,
     drunkEnabled: false,
+    eqEnabled: false,
   });
 
   const effectsRef = useRef(effects);
@@ -223,6 +241,95 @@ export default function AudioManipulator() {
 
     tremoloNodeRef.current.amplitude.connect(tremoloWetGainRef.current);
     tremoloWetGainRef.current.connect(ctx.destination);
+
+    // EQ EFFECT SETUP
+    const LOW_CROSSOVER = 200; // Hz - below this is "low"
+    const HIGH_CROSSOVER = 3000; // Hz - above this is "high"
+    const FILTER_ORDER = 4; // 4 cascaded filters = 48dB/octave slope
+
+    // Helper to create array of cascaded filters
+    const createCascadedFilters = (
+      type: BiquadFilterType,
+      frequency: number,
+      count: number
+    ) => {
+      const filters: BiquadFilterNode[] = [];
+      for (let i = 0; i < count; i++) {
+        const filter = ctx.createBiquadFilter();
+        filter.type = type;
+        filter.frequency.value = frequency;
+        filter.Q.value = 0.707; // Butterworth response for flat passband
+        filters.push(filter);
+      }
+      // Chain them together
+      for (let i = 0; i < filters.length - 1; i++) {
+        filters[i].connect(filters[i + 1]);
+      }
+      return filters;
+    };
+
+    // Low band: cascaded lowpass filters
+    const lowLP = createCascadedFilters("lowpass", LOW_CROSSOVER, FILTER_ORDER);
+
+    // Mid band: cascaded highpass + cascaded lowpass
+    const midHP = createCascadedFilters(
+      "highpass",
+      LOW_CROSSOVER,
+      FILTER_ORDER
+    );
+    const midLP = createCascadedFilters(
+      "lowpass",
+      HIGH_CROSSOVER,
+      FILTER_ORDER
+    );
+
+    // High band: cascaded highpass filters
+    const highHP = createCascadedFilters(
+      "highpass",
+      HIGH_CROSSOVER,
+      FILTER_ORDER
+    );
+
+    // Create gain nodes for each band (0 = kill, 1 = full)
+    const lowGain = ctx.createGain();
+    lowGain.gain.value = effects.eqLowGain;
+
+    const midGain = ctx.createGain();
+    midGain.gain.value = effects.eqMidGain;
+
+    const highGain = ctx.createGain();
+    highGain.gain.value = effects.eqHighGain;
+
+    const eqOutput = ctx.createGain();
+
+    // Low band: lowpass cascade -> lowGain
+    lowLP[lowLP.length - 1].connect(lowGain);
+    lowGain.connect(eqOutput);
+
+    // Mid band: highpass cascade -> lowpass cascade -> midGain
+    midHP[midHP.length - 1].connect(midLP[0]);
+    midLP[midLP.length - 1].connect(midGain);
+    midGain.connect(eqOutput);
+
+    // High band: highpass cascade -> highGain
+    highHP[highHP.length - 1].connect(highGain);
+    highGain.connect(eqOutput);
+
+    eqNodeRef.current = {
+      lowLP,
+      midLP,
+      midHP,
+      highHP,
+      lowGain,
+      midGain,
+      highGain,
+      output: eqOutput,
+    };
+
+    eqWetGainRef.current = ctx.createGain();
+    eqWetGainRef.current.gain.value = effects.eqMix;
+    eqNodeRef.current.output.connect(eqWetGainRef.current);
+    eqWetGainRef.current.connect(ctx.destination);
 
     ctx.audioWorklet
       .addModule("/bitcrush-processor.js")
@@ -307,6 +414,7 @@ export default function AudioManipulator() {
     effects.granularEnabled,
     effects.radioEnabled,
     effects.drunkEnabled,
+    effects.eqEnabled,
   ]);
 
   useEffect(() => {
@@ -415,6 +523,37 @@ export default function AudioManipulator() {
       );
     }
   }, [effects.drunkMix]);
+
+  useEffect(() => {
+    if (eqWetGainRef.current && audioContextRef.current) {
+      eqWetGainRef.current.gain.setTargetAtTime(
+        effects.eqMix,
+        audioContextRef.current.currentTime,
+        0.01
+      );
+    }
+  }, [effects.eqMix]);
+
+  useEffect(() => {
+    if (eqNodeRef.current && audioContextRef.current) {
+      const currentTime = audioContextRef.current.currentTime;
+      eqNodeRef.current.lowGain.gain.setTargetAtTime(
+        effects.eqLowGain,
+        currentTime,
+        0.01
+      );
+      eqNodeRef.current.midGain.gain.setTargetAtTime(
+        effects.eqMidGain,
+        currentTime,
+        0.01
+      );
+      eqNodeRef.current.highGain.gain.setTargetAtTime(
+        effects.eqHighGain,
+        currentTime,
+        0.01
+      );
+    }
+  }, [effects.eqLowGain, effects.eqMidGain, effects.eqHighGain]);
 
   useEffect(() => {
     if (drunkProcessorRef.current && drunkWorkletLoaded) {
@@ -717,20 +856,26 @@ export default function AudioManipulator() {
       : 0;
     const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
     const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
+    const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
 
-    dryGain.gain.value =
-      1 -
-      Math.max(
-        activeDelayMix,
-        activeReverbMix,
-        activeBitcrushMix,
-        activeGranularMix,
-        activeRadioMix,
-        activeConvolverMix,
-        activeTremoloMix,
-        activeDrunkMix
-      ) *
-        0.5;
+    const maxOtherEffectMix = Math.max(
+      activeDelayMix,
+      activeReverbMix,
+      activeBitcrushMix,
+      activeGranularMix,
+      activeRadioMix,
+      activeConvolverMix,
+      activeTremoloMix,
+      activeDrunkMix
+    );
+
+    // If EQ is enabled, it should completely replace dry signal at 100% mix
+    // Other effects blend at 50% max
+    let dryGainValue = 1 - maxOtherEffectMix * 0.5;
+    if (effects.eqEnabled) {
+      dryGainValue = dryGainValue * (1 - activeEqMix); // EQ fully cuts dry signal at 100% mix
+    }
+    dryGain.gain.value = dryGainValue;
 
     // sourceNodeRef.current.connect(dryGain);
     // dryGain.connect(gainNodeRef.current!);
@@ -797,6 +942,13 @@ export default function AudioManipulator() {
       drunkWorkletLoaded
     ) {
       sourceNodeRef.current.connect(drunkProcessorRef.current);
+    }
+
+    // EQ EFFECT
+    if (effects.eqEnabled && eqNodeRef.current) {
+      sourceNodeRef.current.connect(eqNodeRef.current.lowLP[0]);
+      sourceNodeRef.current.connect(eqNodeRef.current.midHP[0]);
+      sourceNodeRef.current.connect(eqNodeRef.current.highHP[0]);
     }
 
     sourceNodeRef.current.start(0, bufferStartOffset);
@@ -929,7 +1081,7 @@ export default function AudioManipulator() {
 
       const grainSource = ctx.createBufferSource();
       grainSource.buffer = processedBuffer;
-      grainSource.playbackRate.value = currentEffects.pitch;
+      grainSource.playbackRate.value = currentEffects.granularPitch;
 
       const grainGain = ctx.createGain();
 
@@ -1075,6 +1227,7 @@ export default function AudioManipulator() {
         : 0;
       const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
       const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
+      const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
       dryGain.gain.value =
         1 -
         Math.max(
@@ -1084,7 +1237,8 @@ export default function AudioManipulator() {
           activeRadioMix,
           activeConvolverMix,
           activeTremoloMix,
-          activeDrunkMix
+          activeDrunkMix,
+          activeEqMix
         ) *
           0.5;
       // const reverbWetGain = offlineCtx.createGain();
@@ -1219,6 +1373,23 @@ export default function AudioManipulator() {
         drunkWetGain.connect(offlineCtx.destination);
       }
 
+      // EQ EFFECT
+      if (effects.eqEnabled) {
+        const eqWetGain = offlineCtx.createGain();
+        eqWetGain.gain.value = effects.eqMix;
+
+        const eq = createEQ(
+          offlineCtx,
+          effects.eqLowGain,
+          effects.eqMidGain,
+          effects.eqHighGain
+        );
+
+        source.connect(eq.input); // EQ input node
+        eq.output.connect(eqWetGain); // EQ output node
+        eqWetGain.connect(offlineCtx.destination);
+      }
+
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
 
@@ -1287,13 +1458,15 @@ export default function AudioManipulator() {
         ? effects.bitcrushMix
         : 0;
       const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
+      const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
       dryGain.gain.value =
         1 -
         Math.max(
           activeDelayMix,
           activeReverbMix,
           activeBitcrushMix,
-          activeRadioMix
+          activeRadioMix,
+          activeEqMix
         ) *
           0.5;
 
@@ -1423,6 +1596,23 @@ export default function AudioManipulator() {
         source.connect(drunkProcessor);
         drunkProcessor.connect(drunkWetGain);
         drunkWetGain.connect(offlineCtx.destination);
+      }
+
+      // EQ EFFECT
+      if (effects.eqEnabled) {
+        const eqWetGain = offlineCtx.createGain();
+        eqWetGain.gain.value = effects.eqMix;
+
+        const eq = createEQ(
+          offlineCtx,
+          effects.eqLowGain,
+          effects.eqMidGain,
+          effects.eqHighGain
+        );
+
+        source.connect(eq.input); // EQ input node
+        eq.output.connect(eqWetGain); // EQ output node
+        eqWetGain.connect(offlineCtx.destination);
       }
 
       source.start(0);
@@ -1626,6 +1816,84 @@ export default function AudioManipulator() {
       depth: depthGain,
       amplitude,
     };
+  };
+
+  const createEQ = (
+    ctx: AudioContext | OfflineAudioContext,
+    lowGainVal: number,
+    midGainVal: number,
+    highGainVal: number
+  ) => {
+    const LOW_CROSSOVER = 200;
+    const HIGH_CROSSOVER = 3000;
+    const FILTER_ORDER = 4; // 48dB/octave
+
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+
+    // Helper to create cascaded filters
+    const createCascadedFilters = (
+      type: BiquadFilterType,
+      frequency: number,
+      count: number
+    ) => {
+      const filters: BiquadFilterNode[] = [];
+      for (let i = 0; i < count; i++) {
+        const filter = ctx.createBiquadFilter();
+        filter.type = type;
+        filter.frequency.value = frequency;
+        filter.Q.value = 0.707;
+        filters.push(filter);
+      }
+      for (let i = 0; i < filters.length - 1; i++) {
+        filters[i].connect(filters[i + 1]);
+      }
+      return filters;
+    };
+
+    // Low band: cascaded lowpass
+    const lowLP = createCascadedFilters("lowpass", LOW_CROSSOVER, FILTER_ORDER);
+    const lowGain = ctx.createGain();
+    lowGain.gain.value = lowGainVal;
+
+    // Mid band: cascaded highpass + lowpass
+    const midHP = createCascadedFilters(
+      "highpass",
+      LOW_CROSSOVER,
+      FILTER_ORDER
+    );
+    const midLP = createCascadedFilters(
+      "lowpass",
+      HIGH_CROSSOVER,
+      FILTER_ORDER
+    );
+    const midGain = ctx.createGain();
+    midGain.gain.value = midGainVal;
+
+    // High band: cascaded highpass
+    const highHP = createCascadedFilters(
+      "highpass",
+      HIGH_CROSSOVER,
+      FILTER_ORDER
+    );
+    const highGain = ctx.createGain();
+    highGain.gain.value = highGainVal;
+
+    // Connect bands in parallel from input with cascaded filters
+    input.connect(lowLP[0]);
+    lowLP[lowLP.length - 1].connect(lowGain);
+    lowGain.connect(output);
+
+    input.connect(midHP[0]);
+    midHP[midHP.length - 1].connect(midLP[0]);
+    midLP[midLP.length - 1].connect(midGain);
+    midGain.connect(output);
+
+    input.connect(highHP[0]);
+    highHP[highHP.length - 1].connect(highGain);
+    highGain.connect(output);
+
+    return { input, output };
   };
 
   const handleSaveProject = async () => {

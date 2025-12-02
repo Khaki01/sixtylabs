@@ -37,6 +37,10 @@ interface EffectsPanelProps {
     drunkWobble: number;
     drunkSpeed: number;
     drunkMix: number;
+    eqLowGain: number;
+    eqMidGain: number;
+    eqHighGain: number;
+    eqMix: number;
 
     // flags
     pitchEnabled: boolean;
@@ -48,6 +52,7 @@ interface EffectsPanelProps {
     granularEnabled: boolean;
     radioEnabled: boolean;
     drunkEnabled: boolean;
+    eqEnabled: boolean;
   };
   setEffects: (effects: any) => void;
 }
@@ -61,6 +66,7 @@ const AVAILABLE_EFFECTS = [
   { id: "granular", name: "Granular", number: "EE06" },
   { id: "radio", name: "Static Distortion", number: "EE07" },
   { id: "drunk", name: "Drunk", number: "EE08" },
+  { id: "eq", name: "EQ Filter", number: "EE09" },
 ];
 
 export default function EffectsPanel({
@@ -77,6 +83,7 @@ export default function EffectsPanel({
   const [granularEnabled, setGranularEnabled] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(false);
   const [drunkEnabled, setDrunkEnabled] = useState(false);
+  const [eqEnabled, setEqEnabled] = useState(false);
 
   const addEffect = (effectType: string) => {
     if (!enabledEffects.includes(effectType)) {
@@ -137,6 +144,13 @@ export default function EffectsPanel({
           drunkEnabled: true,
         });
       }
+      if (effectType === "eq") {
+        setEqEnabled(true);
+        setEffects({
+          ...effects,
+          eqEnabled: true,
+        });
+      }
     }
   };
 
@@ -188,6 +202,12 @@ export default function EffectsPanel({
       setEffects({
         ...effects,
         drunkEnabled: false,
+      });
+    }
+    if (effectType === "eq") {
+      setEffects({
+        ...effects,
+        eqEnabled: false,
       });
     }
   };
@@ -277,6 +297,20 @@ export default function EffectsPanel({
       ...effects,
       drunkEnabled: newEnabled,
     });
+  };
+
+  const toggleEq = () => {
+    const newEnabled = !eqEnabled;
+    setEqEnabled(newEnabled);
+
+    setEffects({
+      ...effects,
+      eqEnabled: newEnabled,
+    });
+  };
+
+  const formatGain = (value: number) => {
+    return `${Math.round(value * 100)}%`;
   };
 
   const availableEffects = AVAILABLE_EFFECTS.filter(
@@ -934,6 +968,99 @@ export default function EffectsPanel({
               max={1}
               step={0.01}
               disabled={!drunkEnabled}
+            />
+          </div>
+        </div>
+      )}
+      {enabledEffects.includes("eq") && (
+        <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleEq}
+                className={`px-2 py-1 font-mono text-sm font-medium border-2 transition-colors ${
+                  eqEnabled
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-transparent text-foreground border-foreground"
+                }`}
+              >
+                EE09
+              </button>
+              <h3 className="font-mono text-base uppercase tracking-wider font-medium">
+                EQ Filter
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => removeEffect("eq")}
+              className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Low (Bass): {formatGain(effects.eqLowGain)}
+            </label>
+            <Slider
+              value={[effects.eqLowGain]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, eqLowGain: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!eqEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mid: {formatGain(effects.eqMidGain)}
+            </label>
+            <Slider
+              value={[effects.eqMidGain]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, eqMidGain: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!eqEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              High (Treble): {formatGain(effects.eqHighGain)}
+            </label>
+            <Slider
+              value={[effects.eqHighGain]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, eqHighGain: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!eqEnabled}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-xs uppercase tracking-wider">
+              Mix: {Math.round(effects.eqMix * 100)}%
+            </label>
+            <Slider
+              value={[effects.eqMix]}
+              onValueChange={([value]) =>
+                setEffects({ ...effects, eqMix: value })
+              }
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!eqEnabled}
             />
           </div>
         </div>

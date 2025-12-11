@@ -2070,7 +2070,7 @@ export default function AudioManipulator() {
                     <Button
                       variant="outline"
                       size="lg"
-                      className="font-mono uppercase tracking-wider bg-transparent w-full"
+                      className="hidden font-mono uppercase tracking-wider bg-transparent w-full"
                     >
                       Browse Sample Library
                     </Button>

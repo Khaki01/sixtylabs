@@ -2062,7 +2062,7 @@ export default function AudioManipulator() {
                     Select Audio File
                   </Button>
                 </label>
-                <Dialog
+{/* <Dialog
                   open={isSampleLibraryOpen}
                   onOpenChange={setIsSampleLibraryOpen}
                 >
@@ -2112,7 +2112,7 @@ export default function AudioManipulator() {
                       ))}
                     </div>
                   </DialogContent>
-                </Dialog>
+                </Dialog> */}
               </div>
             </div>
           ) : (

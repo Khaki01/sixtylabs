@@ -2062,7 +2062,7 @@ export default function AudioManipulator() {
                     Select Audio File
                   </Button>
                 </label>
-{/* <Dialog
+                {/* <Dialog
                   open={isSampleLibraryOpen}
                   onOpenChange={setIsSampleLibraryOpen}
                 >
@@ -2070,7 +2070,7 @@ export default function AudioManipulator() {
                     <Button
                       variant="outline"
                       size="lg"
-                      className="hidden font-mono uppercase tracking-wider bg-transparent w-full"
+                      className="font-mono uppercase tracking-wider bg-transparent w-full"
                     >
                       Browse Sample Library
                     </Button>

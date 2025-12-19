@@ -174,6 +174,8 @@ export default function AudioManipulator() {
     drunkSpeed: 0.5,
     drunkMix: 0.5,
     granularPitch: 1,
+    repeat: 1,
+    repeatCycleSize: 100,
 
     // flags
     pitchEnabled: true,
@@ -186,6 +188,7 @@ export default function AudioManipulator() {
     radioEnabled: false,
     drunkEnabled: false,
     eqEnabled: false,
+    repeatEnabled: false,
   });
 
   const effectsRef = useRef(effects);
@@ -415,7 +418,23 @@ export default function AudioManipulator() {
     effects.radioEnabled,
     effects.drunkEnabled,
     effects.eqEnabled,
+    effects.repeatEnabled,
   ]);
+
+  useEffect(() => {
+    if (isPlaying && effects.repeatEnabled) {
+      pauseAudio();
+      playAudio(clip ? clip : undefined);
+    }
+  }, [effects.repeat, effects.repeatCycleSize]);
+
+  // Restart playback when granular parameters change (if effect is enabled and playing)
+  useEffect(() => {
+    if (isPlaying && effects.granularEnabled) {
+      pauseAudio();
+      playAudio(clip ? clip : undefined);
+    }
+  }, [effects.granularGrainSize, effects.granularChaos]);
 
   useEffect(() => {
     if (gainNodeRef.current) {
@@ -793,6 +812,76 @@ export default function AudioManipulator() {
     setIsSampleLibraryOpen(false);
   };
 
+  const applyRepeatEffect = (buffer: AudioBuffer): AudioBuffer => {
+    if (!effects.repeatEnabled || effects.repeat <= 1) {
+      return buffer;
+    }
+
+    const sampleRate = buffer.sampleRate;
+    const cycleSizeSamples = Math.floor(
+      (effects.repeatCycleSize / 1000) * sampleRate
+    );
+    const stretchFactor = effects.repeat;
+    const crossfadeSamples = Math.max(50, Math.floor(cycleSizeSamples * 0.1));
+
+    const newLength = Math.floor(buffer.length * stretchFactor);
+    const stretchedBuffer = audioContextRef.current!.createBuffer(
+      buffer.numberOfChannels,
+      newLength,
+      sampleRate
+    );
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const inputData = buffer.getChannelData(channel);
+      const outputData = stretchedBuffer.getChannelData(channel);
+
+      let outputIndex = 0;
+      let inputIndex = 0;
+
+      while (outputIndex < newLength && inputIndex < buffer.length) {
+        const cycleLength = Math.min(
+          cycleSizeSamples,
+          buffer.length - inputIndex
+        );
+        const repeatCount = Math.ceil(stretchFactor);
+
+        for (
+          let repeat = 0;
+          repeat < repeatCount && outputIndex < newLength;
+          repeat++
+        ) {
+          for (let i = 0; i < cycleLength && outputIndex < newLength; i++) {
+            let sample = inputData[inputIndex + i];
+
+            // Crossfade between repetitions
+            if (repeat > 0 && i < crossfadeSamples) {
+              const fadeIn = i / crossfadeSamples;
+              const prevSample =
+                outputData[outputIndex - crossfadeSamples + i] || 0;
+              const fadeOut = 1 - fadeIn;
+              sample = sample * fadeIn + prevSample * fadeOut;
+            }
+
+            if (
+              repeat < repeatCount - 1 &&
+              i >= cycleLength - crossfadeSamples
+            ) {
+              const fadeOut = (cycleLength - i) / crossfadeSamples;
+              sample = sample * fadeOut;
+            }
+
+            outputData[outputIndex] = sample;
+            outputIndex++;
+          }
+        }
+
+        inputIndex += cycleSizeSamples;
+      }
+    }
+
+    return stretchedBuffer;
+  };
+
   const playAudio = (clipToPlay?: Clip) => {
     if (!processedBuffer || !audioContextRef.current) return;
     const clipForPlayback = clipToPlay ?? clip;
@@ -834,8 +923,15 @@ export default function AudioManipulator() {
       playDuration = clipForPlayback.endTime - bufferStartOffset;
     }
 
+    // REPEAT EFFECT
+    let bufferToPlay = processedBuffer;
+    if (effects.repeatEnabled && effects.repeat > 1) {
+      bufferToPlay = applyRepeatEffect(bufferToPlay);
+      playDuration = bufferToPlay.duration;
+    }
+
     sourceNodeRef.current = audioContextRef.current.createBufferSource();
-    sourceNodeRef.current.buffer = processedBuffer;
+    sourceNodeRef.current.buffer = bufferToPlay;
     if (effects.pitchEnabled) {
       sourceNodeRef.current.playbackRate.value = effects.pitch;
     } else {
@@ -1202,14 +1298,18 @@ export default function AudioManipulator() {
     setIsRendering(true);
 
     try {
+      let bufferToRender = processedBuffer;
+      if (effects.repeatEnabled && effects.repeat > 1) {
+        bufferToRender = applyRepeatEffect(bufferToRender);
+      }
       const offlineCtx = new OfflineAudioContext(
-        processedBuffer.numberOfChannels,
-        processedBuffer.length,
-        processedBuffer.sampleRate
+        bufferToRender.numberOfChannels,
+        bufferToRender.length,
+        bufferToRender.sampleRate
       );
 
       const source = offlineCtx.createBufferSource();
-      source.buffer = processedBuffer;
+      source.buffer = bufferToRender;
       source.playbackRate.value = effects.pitch;
 
       // const delayNode = offlineCtx.createDelay(2);
@@ -1389,6 +1489,8 @@ export default function AudioManipulator() {
         eq.output.connect(eqWetGain); // EQ output node
         eqWetGain.connect(offlineCtx.destination);
       }
+
+      // REPEAT EFFECT
 
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();

@@ -19,7 +19,6 @@ import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
 import EffectsPanel from "./effects-panel";
 import SamplerPads from "./sampler-pads";
-import SamplerSequencer from "./sampler-sequencer";
 import FeedbackDialog from "./feedback-dialog";
 import Link from "next/link";
 import { isAuthenticated } from "@/lib/auth";
@@ -180,22 +179,13 @@ export default function AudioManipulator() {
   useEffect(() => {
     if (!sequencerEngineRef.current) return;
 
-    sequencerEngineRef.current.onStep((step) => {
-      // Update current step in state
-      setSamplerState((prev) => ({
-        ...prev,
-        sequencer: {
-          ...prev.sequencer,
-          currentStep: step,
-        },
-      }));
-
-      // Trigger pad at current step if it has a clip assigned
+    sequencerEngineRef.current.onStep((padIndex) => {
+      // Trigger the pad at this index
       const currentState = samplerStateRef.current;
-      const pad = currentState.pads[step];
+      const pad = currentState.pads[padIndex];
       const clip = currentState.clips.find(c => c.id === pad?.clipId);
 
-      if (!audioEngineRef.current || !clip) {
+      if (!audioEngineRef.current || !sequencerEngineRef.current || !clip) {
         return;
       }
 
@@ -207,9 +197,39 @@ export default function AudioManipulator() {
       // Get current global effects
       const currentEffects = effectsRef.current;
 
-      // Seek to clip start and play using MAIN AudioEngine with global effects
-      audioEngineRef.current.seek(clip.visualStartTime, currentEffects, clip);
+      // Mark pad as playing
+      setSamplerState((prev) => ({
+        ...prev,
+        sequencer: {
+          ...prev.sequencer,
+          currentStep: padIndex,
+        },
+        pads: prev.pads.map((p, i) =>
+          i === padIndex ? { ...p, isPlaying: true } : { ...p, isPlaying: false }
+        ),
+      }));
+
+      // Handle reverse: seek to end if reversed, start if not
+      const seekTime = currentEffects.reverse ? clip.visualEndTime : clip.visualStartTime;
+      audioEngineRef.current.seek(seekTime, currentEffects, clip);
       audioEngineRef.current.play(currentEffects, clip);
+
+      // Calculate clip duration and tell sequencer to wait for it
+      const clipDuration = (clip.endTime - clip.startTime) / currentEffects.pitch;
+      const clipDurationMs = clipDuration * 1000;
+
+      // Set next step delay to clip duration
+      sequencerEngineRef.current.setNextStepDelay(clipDurationMs);
+
+      // Auto-clear playing state after clip finishes
+      setTimeout(() => {
+        setSamplerState(prev => ({
+          ...prev,
+          pads: prev.pads.map((p, i) =>
+            i === padIndex ? { ...p, isPlaying: false } : p
+          ),
+        }));
+      }, clipDurationMs);
     });
   }, []);
 
@@ -353,7 +373,18 @@ export default function AudioManipulator() {
     } else {
       // Start based on mode
       if (samplerState.mode === 'sequencer') {
-        // Start sequencer
+        // Get pads that have clips assigned
+        const padsWithClips = samplerState.pads
+          .filter(pad => pad.clipId !== null)
+          .map(pad => pad.id);
+
+        if (padsWithClips.length === 0) {
+          console.warn('No pads with clips to sequence');
+          return;
+        }
+
+        // Set sequence and start
+        sequencerEngineRef.current.setSequence(padsWithClips);
         sequencerEngineRef.current.start();
         setSamplerState(prev => ({
           ...prev,
@@ -408,8 +439,9 @@ export default function AudioManipulator() {
       }));
     }
 
-    // Seek to clip start and play using MAIN AudioEngine with global effects
-    audioEngineRef.current.seek(clip.visualStartTime, effects, clip);
+    // Handle reverse: seek to end if reversed, start if not
+    const seekTime = effects.reverse ? clip.visualEndTime : clip.visualStartTime;
+    audioEngineRef.current.seek(seekTime, effects, clip);
     audioEngineRef.current.play(effects, clip);
 
     // Update pad playing state
@@ -458,19 +490,6 @@ export default function AudioManipulator() {
         ...prev.sequencer,
         isPlaying: false,
         currentStep: 0,
-      },
-    }));
-  };
-
-  const handleBPMChange = (bpm: number) => {
-    if (!sequencerEngineRef.current) return;
-
-    sequencerEngineRef.current.setBPM(bpm);
-    setSamplerState(prev => ({
-      ...prev,
-      sequencer: {
-        ...prev.sequencer,
-        bpm,
       },
     }));
   };
@@ -871,7 +890,7 @@ export default function AudioManipulator() {
 
         {/* Sampler/Sequencer Section */}
         {audioFile && (
-          <div className="lg:col-span-2 border-t-2 border-foreground pt-4 mt-4 space-y-4">
+          <div className="lg:col-span-2 border-t-2 border-foreground pt-4 mt-4">
             {/* Sampler Pads */}
             <SamplerPads
               pads={samplerState.pads}
@@ -880,14 +899,6 @@ export default function AudioManipulator() {
               onPadAssignClip={handlePadAssignClip}
               mode={samplerState.mode}
               onModeChange={handleModeChange}
-            />
-
-            {/* Sequencer Controls */}
-            <SamplerSequencer
-              bpm={samplerState.sequencer.bpm}
-              onBPMChange={handleBPMChange}
-              isPlaying={samplerState.sequencer.isPlaying}
-              currentStep={samplerState.sequencer.currentStep}
             />
           </div>
         )}

@@ -14,27 +14,50 @@
  */
 export class SequencerEngine {
   private bpm: number;
-  private currentStep: number;
+  private currentStepIndex: number; // Index in the sequence array
   private isPlaying: boolean;
   private timeoutId: NodeJS.Timeout | null;
   private stepCallback: (step: number) => void;
+  private sequence: number[]; // Array of pad indices to play
+  private nextStepDelay: number | null; // Custom delay for next step (ms)
   private readonly STEPS_PER_BEAT = 4; // 16th notes (4 steps per quarter note)
 
   constructor(initialBPM: number = 120) {
     this.bpm = initialBPM;
-    this.currentStep = 0;
+    this.currentStepIndex = 0;
     this.isPlaying = false;
     this.timeoutId = null;
     this.stepCallback = () => {};
+    this.sequence = []; // Empty by default
+    this.nextStepDelay = null;
   }
 
   /**
    * Set the callback to be called on each step
    *
-   * @param callback - Function called with step number (0-15)
+   * @param callback - Function called with pad index
    */
   public onStep(callback: (step: number) => void): void {
     this.stepCallback = callback;
+  }
+
+  /**
+   * Set the sequence of pad indices to play
+   *
+   * @param sequence - Array of pad indices (e.g., [0, 3, 5, 7] for pads with clips)
+   */
+  public setSequence(sequence: number[]): void {
+    this.sequence = sequence;
+    this.currentStepIndex = 0;
+  }
+
+  /**
+   * Set custom delay for the next step (used to wait for clip to finish)
+   *
+   * @param delayMs - Delay in milliseconds
+   */
+  public setNextStepDelay(delayMs: number): void {
+    this.nextStepDelay = delayMs;
   }
 
   /**
@@ -63,7 +86,7 @@ export class SequencerEngine {
   public stop(): void {
     this.isPlaying = false;
     this.clearTimeout();
-    this.currentStep = 0;
+    this.currentStepIndex = 0;
   }
 
   /**
@@ -89,10 +112,11 @@ export class SequencerEngine {
   }
 
   /**
-   * Get current step (0-15)
+   * Get current pad index being played
    */
   public getCurrentStep(): number {
-    return this.currentStep;
+    if (this.sequence.length === 0) return 0;
+    return this.sequence[this.currentStepIndex];
   }
 
   /**
@@ -103,12 +127,13 @@ export class SequencerEngine {
   }
 
   /**
-   * Manually set current step (useful for UI scrubbing)
+   * Manually set current step index (useful for UI scrubbing)
    *
-   * @param step - Step number (0-15)
+   * @param stepIndex - Index in the sequence array
    */
-  public setStep(step: number): void {
-    this.currentStep = Math.max(0, Math.min(15, step));
+  public setStepIndex(stepIndex: number): void {
+    if (this.sequence.length === 0) return;
+    this.currentStepIndex = Math.max(0, Math.min(this.sequence.length - 1, stepIndex));
   }
 
   /**
@@ -125,18 +150,26 @@ export class SequencerEngine {
    * @private
    */
   private scheduleNextStep(): void {
-    if (!this.isPlaying) {
+    if (!this.isPlaying || this.sequence.length === 0) {
       return;
     }
 
-    // Call the step callback
-    this.stepCallback(this.currentStep);
+    // Get current pad index from sequence
+    const currentPadIndex = this.sequence[this.currentStepIndex];
 
-    // Advance to next step
-    this.currentStep = (this.currentStep + 1) % 16;
+    // Call the step callback with the pad index
+    this.stepCallback(currentPadIndex);
 
-    // Calculate delay for next step
-    const stepDuration = this.calculateStepDuration();
+    // Advance to next step in sequence
+    this.currentStepIndex = (this.currentStepIndex + 1) % this.sequence.length;
+
+    // Use custom delay if set, otherwise use BPM-based timing
+    const stepDuration = this.nextStepDelay !== null
+      ? this.nextStepDelay
+      : this.calculateStepDuration();
+
+    // Clear custom delay for next iteration
+    this.nextStepDelay = null;
 
     // Schedule next step
     this.timeoutId = setTimeout(() => {

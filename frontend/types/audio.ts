@@ -6,6 +6,10 @@ export interface Clip {
   endTime: number; // In seconds (actual audio buffer time)
   visualStartTime: number; // Visual representation (may differ when reversed)
   visualEndTime: number; // Visual representation (may differ when reversed)
+  // Sampler-specific properties
+  color?: string; // Visual distinction on waveform (prevents missing color bug)
+  name?: string; // User-friendly label
+  padAssignment?: number; // Which pad (0-15) this clip is assigned to
 }
 
 export interface EffectsState {
@@ -146,3 +150,51 @@ export const EFFECT_METADATA: Record<EffectType, EffectMetadata> = {
   eq: { id: "eq", name: "EQ Filter", number: "EE09", category: "frequency" },
   repeat: { id: "repeat", name: "Repeat", number: "EE10", category: "special" },
 };
+
+// Sampler/Sequencer types
+
+export interface PadEffects {
+  pitch: number; // Playback rate (0.25 - 4.0)
+  reverse: boolean; // Reverse audio playback
+  delayMix: number; // Delay wet/dry mix (0 - 1)
+  reverbMix: number; // Reverb wet/dry mix (0 - 1)
+}
+
+export interface SamplerPad {
+  id: number; // 0-15
+  clipId: string | null; // Reference to assigned Clip
+  effects: PadEffects; // Per-pad effect settings
+  isPlaying: boolean; // Currently playing state
+  keyBinding: string; // Keyboard shortcut (1-4, Q-W-E-R, etc.)
+}
+
+export interface SequencerState {
+  isEnabled: boolean; // Sequencer mode active
+  bpm: number; // Beats per minute (60-240)
+  currentStep: number; // Current step in sequence (0-15)
+  isPlaying: boolean; // Sequencer is playing
+  sequence: number[]; // Array of pad indices to play in order
+}
+
+export interface SamplerState {
+  pads: SamplerPad[]; // 16 pads
+  clips: Clip[]; // Multiple clips (replaces single clip)
+  sequencer: SequencerState; // Sequencer state
+  mode: 'realtime' | 'sequencer'; // Current mode
+}
+
+// Default values
+
+export const DEFAULT_PAD_EFFECTS: PadEffects = {
+  pitch: 1.0,
+  reverse: false,
+  delayMix: 0,
+  reverbMix: 0,
+};
+
+export const PAD_KEY_BINDINGS = [
+  '1', '2', '3', '4',    // Row 1
+  'Q', 'W', 'E', 'R',    // Row 2
+  'A', 'S', 'D', 'F',    // Row 3
+  'Z', 'X', 'C', 'V'     // Row 4
+];

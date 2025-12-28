@@ -30,7 +30,9 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { AudioEngine } from "@/lib/audio/AudioEngine";
-import type { EffectsState } from "@/types/audio";
+import { SamplerEngine } from "@/lib/audio/SamplerEngine";
+import type { EffectsState, SamplerState, SamplerPad, DEFAULT_PAD_EFFECTS, PAD_KEY_BINDINGS } from "@/types/audio";
+import { DEFAULT_PAD_EFFECTS as DEFAULT_EFFECTS, PAD_KEY_BINDINGS as KEY_BINDINGS } from "@/types/audio";
 
 export default function AudioManipulator() {
   const { theme, setTheme } = useTheme();
@@ -47,7 +49,33 @@ export default function AudioManipulator() {
   const [isSignedIn, setIsSignedIn] = useState(false);
 
   const audioEngineRef = useRef<AudioEngine | null>(null);
+  const samplerEngineRef = useRef<SamplerEngine | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Initialize default pads (16 pads with key bindings)
+  const initializePads = (): SamplerPad[] => {
+    return Array.from({ length: 16 }, (_, i) => ({
+      id: i,
+      clipId: null,
+      effects: { ...DEFAULT_EFFECTS },
+      isPlaying: false,
+      keyBinding: KEY_BINDINGS[i],
+    }));
+  };
+
+  // Sampler state
+  const [samplerState, setSamplerState] = useState<SamplerState>({
+    pads: initializePads(),
+    clips: [],
+    sequencer: {
+      isEnabled: false,
+      bpm: 120,
+      currentStep: 0,
+      isPlaying: false,
+      sequence: Array.from({ length: 16 }, (_, i) => i), // Default: 0-15 in order
+    },
+    mode: 'realtime',
+  });
 
   const [effects, setEffects] = useState<EffectsState>({
     volume: 1.0,
@@ -96,7 +124,7 @@ export default function AudioManipulator() {
     repeatEnabled: false,
   });
 
-  // Initialize AudioEngine
+  // Initialize AudioEngine and SamplerEngine
   useEffect(() => {
     setMounted(true);
     setIsSignedIn(isAuthenticated());
@@ -113,7 +141,12 @@ export default function AudioManipulator() {
       },
     });
 
+    // Initialize SamplerEngine (reuses AudioEngine and EffectsChain)
+    const samplerEngine = new SamplerEngine(engine, engine.getEffectsChain());
+    samplerEngineRef.current = samplerEngine;
+
     return () => {
+      samplerEngine.dispose();
       engine.dispose();
     };
   }, []);

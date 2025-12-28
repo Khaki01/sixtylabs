@@ -15,17 +15,8 @@ import type { Clip } from "@/types/audio";
 
 // Generate random color for clips
 const generateClipColor = (): string => {
-  const colors = [
-    'rgba(59, 130, 246, 0.3)',  // Blue
-    'rgba(16, 185, 129, 0.3)',  // Green
-    'rgba(245, 158, 11, 0.3)',  // Orange
-    'rgba(239, 68, 68, 0.3)',   // Red
-    'rgba(168, 85, 247, 0.3)',  // Purple
-    'rgba(236, 72, 153, 0.3)',  // Pink
-    'rgba(14, 165, 233, 0.3)',  // Sky
-    'rgba(34, 197, 94, 0.3)',   // Emerald
-  ];
-  return colors[Math.floor(Math.random() * colors.length)];
+  // Plain gray style - no colors
+  return 'rgba(128, 128, 128, 0.25)';
 };
 
 interface WaveformVisualizerProps {

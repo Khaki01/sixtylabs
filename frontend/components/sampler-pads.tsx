@@ -108,8 +108,8 @@ export default function SamplerPads({
         </div>
       </div>
 
-      {/* 4x4 Pad Grid */}
-      <div className="grid grid-cols-4 gap-2">
+      {/* 8x2 Pad Grid */}
+      <div className="grid grid-cols-8 gap-2">
         {pads.map((pad) => {
           const display = getPadDisplay(pad);
           const isActive = pad.clipId !== null;
@@ -130,13 +130,6 @@ export default function SamplerPads({
                     }
                   `}
                   onClick={() => handlePadClick(pad.id)}
-                  style={{
-                    backgroundColor: isPlaying
-                      ? undefined
-                      : display?.color
-                        ? display.color.replace('0.3', '0.15')
-                        : undefined
-                  }}
                 >
                   <div className="flex flex-col items-center justify-center gap-1 w-full">
                     {/* Key binding */}
@@ -199,15 +192,9 @@ export default function SamplerPads({
                           handleAssignClip(pad.id, clip.id);
                         }}
                       >
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-3 h-3 border border-foreground"
-                            style={{ backgroundColor: clip.color }}
-                          />
-                          <span className="text-xs">
-                            {clip.name || `Clip ${clips.indexOf(clip) + 1}`}
-                          </span>
-                        </div>
+                        <span className="text-xs">
+                          {clip.name || `Clip ${clips.indexOf(clip) + 1}`}
+                        </span>
                       </DropdownMenuItem>
                     ))}
                   </>

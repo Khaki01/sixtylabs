@@ -125,6 +125,10 @@ export class EffectsChain {
     try {
       // Load bitcrush worklet
       await this.ctx.audioWorklet.addModule("/bitcrush-processor.js");
+
+      // Check if context is still running before creating nodes
+      if (this.ctx.state === "closed") return;
+
       this.workletLoaded = true;
       this.bitcrushProcessor = new AudioWorkletNode(
         this.ctx,
@@ -140,6 +144,10 @@ export class EffectsChain {
     try {
       // Load radio worklet
       await this.ctx.audioWorklet.addModule("/radio-processor.js");
+
+      // Check if context is still running before creating nodes
+      if (this.ctx.state === "closed") return;
+
       this.radioWorkletLoaded = true;
       this.radioProcessor = new AudioWorkletNode(this.ctx, "radio-processor");
       this.radioWetGain.gain.value = 0.5;
@@ -152,6 +160,10 @@ export class EffectsChain {
     try {
       // Load drunk worklet
       await this.ctx.audioWorklet.addModule("/drunk-processor.js");
+
+      // Check if context is still running before creating nodes
+      if (this.ctx.state === "closed") return;
+
       this.drunkWorkletLoaded = true;
       this.drunkProcessor = new AudioWorkletNode(this.ctx, "drunk-processor");
       this.drunkWetGain.gain.value = 0.5;

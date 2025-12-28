@@ -12,7 +12,6 @@ import {
   RotateCcw,
   Download,
   Repeat,
-  PlayIcon,
   ChevronDown,
   Menu,
 } from "lucide-react";
@@ -24,125 +23,33 @@ import Link from "next/link";
 import type { Clip } from "./waveform-visualizer";
 import { isAuthenticated } from "@/lib/auth";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-
-const SAMPLE_LIBRARY = [
-  { id: 1, name: "Lo-Fi Beat 01", author: "DJ Smooth", genre: "Lo-Fi Hip Hop" },
-  { id: 2, name: "Ambient Pad", author: "Synth Master", genre: "Ambient" },
-  { id: 3, name: "Drum Break", author: "Beat Maker", genre: "Breakbeat" },
-  { id: 4, name: "Jazz Piano Loop", author: "Keys Player", genre: "Jazz" },
-  { id: 5, name: "Bass Line 808", author: "Low End Theory", genre: "Trap" },
-  { id: 6, name: "Vocal Chop", author: "Voice Artist", genre: "Electronic" },
-  { id: 7, name: "Guitar Riff", author: "String Theory", genre: "Rock" },
-  { id: 8, name: "Synth Lead", author: "Analog Dreams", genre: "Synthwave" },
-];
-
-const WINDOW_SIZE = 4096;
-const hanningWindow = new Float32Array(WINDOW_SIZE);
-for (let i = 0; i < WINDOW_SIZE; i++) {
-  hanningWindow[i] =
-    0.5 * (1 - Math.cos((2 * Math.PI * i) / (WINDOW_SIZE - 1)));
-}
+import { AudioEngine } from "@/lib/audio/AudioEngine";
+import type { EffectsState } from "@/types/audio";
 
 export default function AudioManipulator() {
   const { theme, setTheme } = useTheme();
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(
-    null
-  );
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isRendering, setIsRendering] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [clip, setClip] = useState<Clip | null>(null);
   const [mounted, setMounted] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
 
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const lastPitchChangeTimeRef = useRef<number>(0);
-  const bufferPositionAtLastChangeRef = useRef<number>(0);
-  const pauseTimeRef = useRef<number>(0);
-  const playbackRateRef = useRef<number>(1);
-  const animationFrameRef = useRef<number | null>(null);
+  const audioEngineRef = useRef<AudioEngine | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const delayNodeRef = useRef<DelayNode | null>(null);
-  const delayFeedbackGainRef = useRef<GainNode | null>(null);
-  const isLoopingRef = useRef(false);
-  const isManuallyStoppingRef = useRef(false);
 
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const delayWetGainRef = useRef<GainNode | null>(null);
-  const convolverNodeRef = useRef<ConvolverNode | null>(null);
-  const convolverWetGainRef = useRef<GainNode | null>(null);
-
-  const granularGainRef = useRef<GainNode | null>(null);
-  const nextGrainTimeRef = useRef<number>(0);
-  const grainSchedulerTimerRef = useRef<number | null>(null);
-
-  const reverbNodeRef = useRef<{
-    input: GainNode;
-    output: GainNode;
-    delays: DelayNode[];
-    gains: GainNode[];
-    filters: BiquadFilterNode[];
-  } | null>(null);
-  const reverbWetGainRef = useRef<GainNode | null>(null);
-  const tremoloNodeRef = useRef<{
-    lfo: OscillatorNode;
-    depth: GainNode;
-    amplitude: GainNode;
-  } | null>(null);
-  const tremoloWetGainRef = useRef<GainNode | null>(null);
-
-  const bitcrushProcessorRef = useRef<AudioWorkletNode | null>(null);
-  const bitcrushWetGainRef = useRef<GainNode | null>(null);
-  const [workletLoaded, setWorkletLoaded] = useState(false);
-
-  const radioProcessorRef = useRef<AudioWorkletNode | null>(null);
-  const radioWetGainRef = useRef<GainNode | null>(null);
-  const [radioWorkletLoaded, setRadioWorkletLoaded] = useState(false);
-
-  const drunkProcessorRef = useRef<AudioWorkletNode | null>(null);
-  const drunkWetGainRef = useRef<GainNode | null>(null);
-  const [drunkWorkletLoaded, setDrunkWorkletLoaded] = useState(false);
-
-  const eqNodeRef = useRef<{
-    lowLP: BiquadFilterNode[]; // Array of 4 lowpass filters cascaded
-    midLP: BiquadFilterNode[]; // Array of 4 lowpass filters for mid band
-    midHP: BiquadFilterNode[]; // Array of 4 highpass filters for mid band
-    highHP: BiquadFilterNode[]; // Array of 4 highpass filters cascaded
-    lowGain: GainNode;
-    midGain: GainNode;
-    highGain: GainNode;
-    output: GainNode;
-  } | null>(null);
-  const eqWetGainRef = useRef<GainNode | null>(null);
-
-  const [effects, setEffects] = useState({
+  const [effects, setEffects] = useState<EffectsState>({
     volume: 1.0,
     pitch: 1,
     reverse: false,
@@ -167,17 +74,15 @@ export default function AudioManipulator() {
     granularOverlap: 0.5,
     granularChaos: 0.5,
     granularMix: 0.5,
+    granularPitch: 1,
     radioDistortion: 0.5,
     radioStatic: 0.3,
     radioMix: 0.5,
     drunkWobble: 0.5,
     drunkSpeed: 0.5,
     drunkMix: 0.5,
-    granularPitch: 1,
     repeat: 1,
     repeatCycleSize: 100,
-
-    // flags
     pitchEnabled: true,
     delayEnabled: false,
     reverbEnabled: false,
@@ -191,221 +96,63 @@ export default function AudioManipulator() {
     repeatEnabled: false,
   });
 
-  const effectsRef = useRef(effects);
-
-  useEffect(() => {
-    effectsRef.current = effects;
-  }, [effects]);
-
+  // Initialize AudioEngine
   useEffect(() => {
     setMounted(true);
     setIsSignedIn(isAuthenticated());
-  }, []);
 
-  useEffect(() => {
-    audioContextRef.current = new AudioContext();
-    const ctx = audioContextRef.current;
+    const engine = new AudioEngine();
+    audioEngineRef.current = engine;
 
-    gainNodeRef.current = ctx.createGain();
-    gainNodeRef.current.gain.value = effects.volume;
-    gainNodeRef.current.connect(ctx.destination);
-
-    granularGainRef.current = ctx.createGain();
-    granularGainRef.current.gain.value = effects.granularMix;
-    granularGainRef.current.connect(gainNodeRef.current);
-
-    convolverNodeRef.current = ctx.createConvolver();
-    convolverNodeRef.current.buffer = createImpulseResponse(ctx, 15, 2.5);
-
-    convolverWetGainRef.current = ctx.createGain();
-    convolverWetGainRef.current.gain.value = effects.convolverMix;
-
-    convolverNodeRef.current.connect(convolverWetGainRef.current);
-    convolverWetGainRef.current.connect(ctx.destination);
-
-    reverbNodeRef.current = createReverb(
-      ctx,
-      effects.reverbRoomSize,
-      effects.reverbDecay
-    );
-    reverbWetGainRef.current = ctx.createGain();
-    reverbWetGainRef.current.gain.value = effects.reverbMix;
-
-    reverbNodeRef.current.output.connect(reverbWetGainRef.current);
-    reverbWetGainRef.current.connect(ctx.destination);
-
-    tremoloNodeRef.current = createTremolo(
-      ctx,
-      effects.tremoloRate,
-      effects.tremoloDepth
-    );
-    tremoloWetGainRef.current = ctx.createGain();
-    tremoloWetGainRef.current.gain.value = effects.tremoloMix;
-
-    tremoloNodeRef.current.amplitude.connect(tremoloWetGainRef.current);
-    tremoloWetGainRef.current.connect(ctx.destination);
-
-    // EQ EFFECT SETUP
-    const LOW_CROSSOVER = 200; // Hz - below this is "low"
-    const HIGH_CROSSOVER = 3000; // Hz - above this is "high"
-    const FILTER_ORDER = 4; // 4 cascaded filters = 48dB/octave slope
-
-    // Helper to create array of cascaded filters
-    const createCascadedFilters = (
-      type: BiquadFilterType,
-      frequency: number,
-      count: number
-    ) => {
-      const filters: BiquadFilterNode[] = [];
-      for (let i = 0; i < count; i++) {
-        const filter = ctx.createBiquadFilter();
-        filter.type = type;
-        filter.frequency.value = frequency;
-        filter.Q.value = 0.707; // Butterworth response for flat passband
-        filters.push(filter);
-      }
-      // Chain them together
-      for (let i = 0; i < filters.length - 1; i++) {
-        filters[i].connect(filters[i + 1]);
-      }
-      return filters;
-    };
-
-    // Low band: cascaded lowpass filters
-    const lowLP = createCascadedFilters("lowpass", LOW_CROSSOVER, FILTER_ORDER);
-
-    // Mid band: cascaded highpass + cascaded lowpass
-    const midHP = createCascadedFilters(
-      "highpass",
-      LOW_CROSSOVER,
-      FILTER_ORDER
-    );
-    const midLP = createCascadedFilters(
-      "lowpass",
-      HIGH_CROSSOVER,
-      FILTER_ORDER
-    );
-
-    // High band: cascaded highpass filters
-    const highHP = createCascadedFilters(
-      "highpass",
-      HIGH_CROSSOVER,
-      FILTER_ORDER
-    );
-
-    // Create gain nodes for each band (0 = kill, 1 = full)
-    const lowGain = ctx.createGain();
-    lowGain.gain.value = effects.eqLowGain;
-
-    const midGain = ctx.createGain();
-    midGain.gain.value = effects.eqMidGain;
-
-    const highGain = ctx.createGain();
-    highGain.gain.value = effects.eqHighGain;
-
-    const eqOutput = ctx.createGain();
-
-    // Low band: lowpass cascade -> lowGain
-    lowLP[lowLP.length - 1].connect(lowGain);
-    lowGain.connect(eqOutput);
-
-    // Mid band: highpass cascade -> lowpass cascade -> midGain
-    midHP[midHP.length - 1].connect(midLP[0]);
-    midLP[midLP.length - 1].connect(midGain);
-    midGain.connect(eqOutput);
-
-    // High band: highpass cascade -> highGain
-    highHP[highHP.length - 1].connect(highGain);
-    highGain.connect(eqOutput);
-
-    eqNodeRef.current = {
-      lowLP,
-      midLP,
-      midHP,
-      highHP,
-      lowGain,
-      midGain,
-      highGain,
-      output: eqOutput,
-    };
-
-    eqWetGainRef.current = ctx.createGain();
-    eqWetGainRef.current.gain.value = effects.eqMix;
-    eqNodeRef.current.output.connect(eqWetGainRef.current);
-    eqWetGainRef.current.connect(ctx.destination);
-
-    ctx.audioWorklet
-      .addModule("/bitcrush-processor.js")
-      .then(() => {
-        setWorkletLoaded(true);
-        bitcrushProcessorRef.current = new AudioWorkletNode(
-          ctx,
-          "bitcrush-processor"
-        );
-        bitcrushWetGainRef.current = ctx.createGain();
-        bitcrushWetGainRef.current.gain.value = effects.bitcrushMix; // use destructured variable
-
-        bitcrushProcessorRef.current.connect(bitcrushWetGainRef.current);
-        bitcrushWetGainRef.current.connect(ctx.destination);
-      })
-      .catch((error) => {
-        console.error("[v0] Error loading bitcrush worklet:", error);
-      });
-
-    ctx.audioWorklet
-      .addModule("/radio-processor.js")
-      .then(() => {
-        setRadioWorkletLoaded(true);
-        radioProcessorRef.current = new AudioWorkletNode(
-          ctx,
-          "radio-processor"
-        );
-        radioWetGainRef.current = ctx.createGain();
-        radioWetGainRef.current.gain.value = effects.radioMix;
-
-        radioProcessorRef.current.port.onmessage = (event) => {
-          if (event.data.type === "debug") {
-            console.log("[v0] Radio processor:", event.data);
-          }
-        };
-
-        radioProcessorRef.current.connect(radioWetGainRef.current);
-        radioWetGainRef.current.connect(ctx.destination);
-      })
-      .catch((error) => {
-        console.error("[v0] Error loading radio worklet:", error);
-      });
-
-    ctx.audioWorklet
-      .addModule("/drunk-processor.js")
-      .then(() => {
-        setDrunkWorkletLoaded(true);
-        drunkProcessorRef.current = new AudioWorkletNode(
-          ctx,
-          "drunk-processor"
-        );
-        drunkWetGainRef.current = ctx.createGain();
-        drunkWetGainRef.current.gain.value = effects.drunkMix;
-
-        drunkProcessorRef.current.connect(drunkWetGainRef.current);
-        drunkWetGainRef.current.connect(ctx.destination);
-      })
-      .catch((error) => {
-        console.error("[v0] Error loading drunk worklet:", error);
-      });
+    // Set up callbacks
+    engine.setCallbacks({
+      onTimeUpdate: (time) => setCurrentTime(time),
+      onPlayStateChange: (playing) => setIsPlaying(playing),
+      onEnd: () => {
+        setCurrentTime(clip ? clip.visualStartTime : 0);
+      },
+    });
 
     return () => {
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+      engine.dispose();
     };
   }, []);
 
-  // effets handlers
+  // Update effects chain when effects change
   useEffect(() => {
-    if (isPlaying) {
-      pauseAudio();
-      playAudio(clip ? clip : undefined);
+    if (audioEngineRef.current) {
+      audioEngineRef.current.getEffectsChain().updateEffects(effects);
+    }
+  }, [
+    effects.volume,
+    effects.reverbMix,
+    effects.reverbRoomSize,
+    effects.reverbDecay,
+    effects.granularMix,
+    effects.tremoloMix,
+    effects.tremoloRate,
+    effects.tremoloDepth,
+    effects.convolverMix,
+    effects.eqMix,
+    effects.eqLowGain,
+    effects.eqMidGain,
+    effects.eqHighGain,
+    effects.bitcrushMix,
+    effects.bitcrushBitDepth,
+    effects.bitcrushSampleRate,
+    effects.radioMix,
+    effects.radioDistortion,
+    effects.radioStatic,
+    effects.drunkMix,
+    effects.drunkWobble,
+    effects.drunkSpeed,
+  ]);
+
+  // Handle effect enabled/disabled changes - restart playback
+  useEffect(() => {
+    if (isPlaying && audioEngineRef.current) {
+      audioEngineRef.current.pause();
+      audioEngineRef.current.play(effects, clip || undefined);
     }
   }, [
     effects.pitchEnabled,
@@ -421,301 +168,88 @@ export default function AudioManipulator() {
     effects.repeatEnabled,
   ]);
 
+  // Handle repeat parameter changes
   useEffect(() => {
-    if (isPlaying && effects.repeatEnabled) {
-      pauseAudio();
-      playAudio(clip ? clip : undefined);
+    if (isPlaying && effects.repeatEnabled && audioEngineRef.current) {
+      audioEngineRef.current.pause();
+      audioEngineRef.current.play(effects, clip || undefined);
     }
   }, [effects.repeat, effects.repeatCycleSize]);
 
-  // Restart playback when granular parameters change (if effect is enabled and playing)
+  // Handle granular parameter changes
   useEffect(() => {
-    if (isPlaying && effects.granularEnabled) {
-      pauseAudio();
-      playAudio(clip ? clip : undefined);
+    if (isPlaying && effects.granularEnabled && audioEngineRef.current) {
+      audioEngineRef.current.pause();
+      audioEngineRef.current.play(effects, clip || undefined);
     }
   }, [effects.granularGrainSize, effects.granularChaos]);
 
+  // Handle pitch changes
   useEffect(() => {
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.setTargetAtTime(
-        effects.volume,
-        audioContextRef.current!.currentTime,
-        0.01
+    if (isPlaying && audioEngineRef.current) {
+      audioEngineRef.current.updatePlaybackAfterPitchChange(
+        effects,
+        clip || undefined
       );
-    }
-  }, [effects.volume]);
-
-  useEffect(() => {
-    if (reverbWetGainRef.current && audioContextRef.current) {
-      reverbWetGainRef.current.gain.setTargetAtTime(
-        effects.reverbMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.reverbMix]);
-
-  useEffect(() => {
-    if (granularGainRef.current && audioContextRef.current) {
-      granularGainRef.current.gain.setTargetAtTime(
-        effects.granularMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.granularMix]);
-
-  useEffect(() => {
-    if (tremoloWetGainRef.current && audioContextRef.current) {
-      tremoloWetGainRef.current.gain.setTargetAtTime(
-        effects.tremoloMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.tremoloMix]);
-
-  useEffect(() => {
-    if (tremoloNodeRef.current && audioContextRef.current) {
-      const { lfo, depth } = tremoloNodeRef.current;
-      const currentTime = audioContextRef.current.currentTime;
-
-      lfo.frequency.setTargetAtTime(effects.tremoloRate, currentTime, 0.01);
-      depth.gain.setTargetAtTime(effects.tremoloDepth, currentTime, 0.01);
-    }
-  }, [effects.tremoloRate, effects.tremoloDepth]);
-
-  useEffect(() => {
-    if (reverbNodeRef.current && audioContextRef.current) {
-      const currentTime = audioContextRef.current.currentTime;
-      const baseTimes = [
-        0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
-      ];
-
-      reverbNodeRef.current.delays.forEach((delay, i) => {
-        delay.delayTime.setTargetAtTime(
-          baseTimes[i] * (1 + effects.reverbRoomSize * 3),
-          currentTime,
-          0.1
-        );
-        reverbNodeRef.current!.gains[i].gain.setTargetAtTime(
-          effects.reverbDecay * 0.65,
-          currentTime,
-          0.1
-        );
-        reverbNodeRef.current!.filters[i].frequency.setTargetAtTime(
-          3000 - effects.reverbDecay * 1500,
-          currentTime,
-          0.1
-        );
-      });
-    }
-  }, [effects.reverbRoomSize, effects.reverbDecay]);
-
-  useEffect(() => {
-    if (bitcrushWetGainRef.current && audioContextRef.current) {
-      bitcrushWetGainRef.current.gain.setTargetAtTime(
-        effects.bitcrushMix, // use destructured variable
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.bitcrushMix]);
-
-  useEffect(() => {
-    if (radioWetGainRef.current && audioContextRef.current) {
-      radioWetGainRef.current.gain.setTargetAtTime(
-        effects.radioMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.radioMix]);
-
-  useEffect(() => {
-    if (drunkWetGainRef.current && audioContextRef.current) {
-      drunkWetGainRef.current.gain.setTargetAtTime(
-        effects.drunkMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.drunkMix]);
-
-  useEffect(() => {
-    if (eqWetGainRef.current && audioContextRef.current) {
-      eqWetGainRef.current.gain.setTargetAtTime(
-        effects.eqMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.eqMix]);
-
-  useEffect(() => {
-    if (eqNodeRef.current && audioContextRef.current) {
-      const currentTime = audioContextRef.current.currentTime;
-      eqNodeRef.current.lowGain.gain.setTargetAtTime(
-        effects.eqLowGain,
-        currentTime,
-        0.01
-      );
-      eqNodeRef.current.midGain.gain.setTargetAtTime(
-        effects.eqMidGain,
-        currentTime,
-        0.01
-      );
-      eqNodeRef.current.highGain.gain.setTargetAtTime(
-        effects.eqHighGain,
-        currentTime,
-        0.01
-      );
-    }
-  }, [effects.eqLowGain, effects.eqMidGain, effects.eqHighGain]);
-
-  useEffect(() => {
-    if (drunkProcessorRef.current && drunkWorkletLoaded) {
-      drunkProcessorRef.current.parameters
-        .get("wobble")
-        ?.setValueAtTime(
-          effects.drunkWobble,
-          audioContextRef.current!.currentTime
-        );
-      drunkProcessorRef.current.parameters
-        .get("speed")
-        ?.setValueAtTime(
-          effects.drunkSpeed,
-          audioContextRef.current!.currentTime
-        );
-    }
-  }, [effects.drunkWobble, effects.drunkSpeed, drunkWorkletLoaded]);
-
-  useEffect(() => {
-    if (bitcrushProcessorRef.current && workletLoaded) {
-      bitcrushProcessorRef.current.parameters.get("bitDepth")?.setValueAtTime(
-        effects.bitcrushBitDepth, // use destructured variable
-        audioContextRef.current!.currentTime
-      );
-      bitcrushProcessorRef.current.parameters.get("sampleRate")?.setValueAtTime(
-        effects.bitcrushSampleRate, // use destructured variable
-        audioContextRef.current!.currentTime
-      );
-    }
-  }, [effects.bitcrushBitDepth, effects.bitcrushSampleRate, workletLoaded]);
-
-  useEffect(() => {
-    if (radioProcessorRef.current && radioWorkletLoaded) {
-      radioProcessorRef.current.parameters
-        .get("distortion")
-        ?.setValueAtTime(
-          effects.radioDistortion,
-          audioContextRef.current!.currentTime
-        );
-      radioProcessorRef.current.parameters
-        .get("static")
-        ?.setValueAtTime(
-          effects.radioStatic,
-          audioContextRef.current!.currentTime
-        );
-    }
-  }, [effects.radioDistortion, effects.radioStatic, radioWorkletLoaded]);
-
-  useEffect(() => {
-    if (delayNodeRef.current && audioContextRef.current && isPlaying) {
-      delayNodeRef.current.delayTime.setTargetAtTime(
-        effects.delayTime,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.delayTime, isPlaying]);
-
-  useEffect(() => {
-    if (convolverWetGainRef.current && audioContextRef.current) {
-      convolverWetGainRef.current.gain.setTargetAtTime(
-        effects.convolverMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.convolverMix]);
-
-  useEffect(() => {
-    if (delayFeedbackGainRef.current && audioContextRef.current && isPlaying) {
-      delayFeedbackGainRef.current.gain.setTargetAtTime(
-        effects.delayFeedback,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.delayFeedback, isPlaying]);
-
-  useEffect(() => {
-    if (delayWetGainRef.current && audioContextRef.current && isPlaying) {
-      delayWetGainRef.current.gain.setTargetAtTime(
-        effects.delayMix,
-        audioContextRef.current.currentTime,
-        0.01
-      );
-    }
-  }, [effects.delayMix, isPlaying]);
-
-  useEffect(() => {
-    if (
-      sourceNodeRef.current &&
-      audioContextRef.current &&
-      isPlaying
-      // effects.pitchEnabled
-    ) {
-      // Calculate current position before stopping
-      const contextElapsed =
-        audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
-      const bufferElapsed = contextElapsed * playbackRateRef.current;
-      const currentBufferPosition =
-        bufferPositionAtLastChangeRef.current + bufferElapsed;
-
-      // Store the current position
-      pauseTimeRef.current = currentBufferPosition;
-
-      // Restart playback with new pitch
-      pauseAudio();
-      playAudio(clip ? clip : undefined);
     }
   }, [effects.pitch]);
 
+  // Handle reverse - keep visual position the same
   useEffect(() => {
-    if (!audioBuffer) return;
+    if (!audioEngineRef.current) return;
 
-    if (effects.reverse) {
-      const reversed = reverseAudioBuffer(audioBuffer);
-      setProcessedBuffer(reversed);
-    } else {
-      setProcessedBuffer(audioBuffer);
-    }
-    if (clip) {
-      setClip({
-        ...clip,
-        startTime: duration - clip.endTime,
-        endTime: duration - clip.startTime,
-      });
-    }
-  }, [effects.reverse, audioBuffer]);
+    // Keep the current visual time the same
+    const currentVisualTime = currentTime;
 
-  useEffect(() => {
     if (isPlaying) {
-      pauseAudio();
-      // since audio buffer is changed (flipped), need to flip the current node it is paused at
-      pauseTimeRef.current = duration - pauseTimeRef.current;
-      setTimeout(() => playAudio(), 50);
+      audioEngineRef.current.pause();
+      // Seek to the same visual position (seek handles the coordinate conversion)
+      audioEngineRef.current.seek(currentVisualTime, effects, clip || undefined);
+      audioEngineRef.current.play(effects, clip || undefined);
+    } else {
+      // When paused, just update the internal position
+      const newPauseTime = duration - audioEngineRef.current.getPauseTime();
+      audioEngineRef.current.setPauseTime(newPauseTime);
+      // Update the visual display
+      setCurrentTime(currentVisualTime);
     }
-  }, [processedBuffer]);
+  }, [effects.reverse]);
+
+  // Update looping
+  useEffect(() => {
+    if (audioEngineRef.current) {
+      audioEngineRef.current.setLooping(isLooping);
+    }
+  }, [isLooping]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !audioEngineRef.current) return;
+
+    if (isPlaying) {
+      audioEngineRef.current.pause();
+    }
+
+    setAudioFile(file);
+
+    try {
+      const buffer = await audioEngineRef.current.loadAudioFile(file);
+      setDuration(buffer.duration);
+      setCurrentTime(0);
+      setIsPlaying(false);
+      setClip(null);
+    } catch (error) {
+      console.error("Error loading audio file:", error);
+      alert(`Error loading audio file: ${error}`);
+    }
+  };
 
   const triggerClipUpdate = (input_clip?: Clip) => {
-    if (isPlaying && input_clip) {
-      const currentPosition = pauseTimeRef.current;
+    if (!audioEngineRef.current) return;
 
-      // Check if current position is within the new clip bounds
+    if (isPlaying && input_clip) {
+      const currentPosition = audioEngineRef.current.getPauseTime();
+
       let isWithinNewClip;
       if (effects.reverse) {
         isWithinNewClip =
@@ -727,581 +261,61 @@ export default function AudioManipulator() {
           currentPosition <= input_clip.endTime;
       }
 
-      if (isWithinNewClip) {
-        // If we're still within bounds, just continue playing with updated clip
-        // The playAudio function will handle the new endpoint automatically
-        pauseAudio();
-        playAudio(input_clip);
-        // setTimeout(() => playAudio(clip), 50);
-      } else {
-        // If we're outside the new clip bounds, reset to clip start
-        pauseAudio();
-        pauseTimeRef.current = pauseTimeRef.current;
-        playAudio(input_clip);
-        // setTimeout(() => playAudio(clip), 50);
+      audioEngineRef.current.pause();
+      if (!isWithinNewClip) {
+        audioEngineRef.current.setPauseTime(input_clip.startTime);
       }
+      audioEngineRef.current.play(effects, input_clip);
     } else if (!input_clip) {
-      pauseAudio();
+      audioEngineRef.current.pause();
     }
   };
 
-  const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
-    const reversedBuffer = audioContextRef.current!.createBuffer(
-      buffer.numberOfChannels,
-      buffer.length,
-      buffer.sampleRate
-    );
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      const reversedData = reversedBuffer.getChannelData(channel);
-
-      for (let i = 0; i < channelData.length; i++) {
-        reversedData[i] = channelData[channelData.length - 1 - i];
-      }
-    }
-
-    return reversedBuffer;
-  };
-
-  useEffect(() => {
-    isLoopingRef.current = isLooping;
-  }, [isLooping]);
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
+  const togglePlayPause = () => {
+    if (!audioEngineRef.current) return;
 
     if (isPlaying) {
-      pauseAudio();
-    }
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    setAudioFile(file);
-
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = await audioContextRef.current!.decodeAudioData(
-        arrayBuffer
-      );
-
-      setAudioBuffer(buffer);
-      setProcessedBuffer(buffer);
-      setDuration(buffer.duration);
-      setCurrentTime(0);
-      pauseTimeRef.current = 0;
-      setIsPlaying(false);
-      setClip(null);
-    } catch (error) {
-      console.error("Error loading audio file:", error);
-      alert(`Error loading audio file: ${error}`);
-    }
-  };
-
-  const handleSampleSelect = (sample: (typeof SAMPLE_LIBRARY)[0]) => {
-    setIsSampleLibraryOpen(false);
-  };
-
-  const applyRepeatEffect = (buffer: AudioBuffer): AudioBuffer => {
-    if (!effects.repeatEnabled || effects.repeat <= 1) {
-      return buffer;
-    }
-
-    const sampleRate = buffer.sampleRate;
-    const cycleSizeSamples = Math.floor(
-      (effects.repeatCycleSize / 1000) * sampleRate
-    );
-    const stretchFactor = effects.repeat;
-    const crossfadeSamples = Math.max(50, Math.floor(cycleSizeSamples * 0.1));
-
-    const newLength = Math.floor(buffer.length * stretchFactor);
-    const stretchedBuffer = audioContextRef.current!.createBuffer(
-      buffer.numberOfChannels,
-      newLength,
-      sampleRate
-    );
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const inputData = buffer.getChannelData(channel);
-      const outputData = stretchedBuffer.getChannelData(channel);
-
-      let outputIndex = 0;
-      let inputIndex = 0;
-
-      while (outputIndex < newLength && inputIndex < buffer.length) {
-        const cycleLength = Math.min(
-          cycleSizeSamples,
-          buffer.length - inputIndex
-        );
-        const repeatCount = Math.ceil(stretchFactor);
-
-        for (
-          let repeat = 0;
-          repeat < repeatCount && outputIndex < newLength;
-          repeat++
-        ) {
-          for (let i = 0; i < cycleLength && outputIndex < newLength; i++) {
-            let sample = inputData[inputIndex + i];
-
-            // Crossfade between repetitions
-            if (repeat > 0 && i < crossfadeSamples) {
-              const fadeIn = i / crossfadeSamples;
-              const prevSample =
-                outputData[outputIndex - crossfadeSamples + i] || 0;
-              const fadeOut = 1 - fadeIn;
-              sample = sample * fadeIn + prevSample * fadeOut;
-            }
-
-            if (
-              repeat < repeatCount - 1 &&
-              i >= cycleLength - crossfadeSamples
-            ) {
-              const fadeOut = (cycleLength - i) / crossfadeSamples;
-              sample = sample * fadeOut;
-            }
-
-            outputData[outputIndex] = sample;
-            outputIndex++;
-          }
-        }
-
-        inputIndex += cycleSizeSamples;
-      }
-    }
-
-    return stretchedBuffer;
-  };
-
-  const playAudio = (clipToPlay?: Clip) => {
-    if (!processedBuffer || !audioContextRef.current) return;
-    const clipForPlayback = clipToPlay ?? clip;
-
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-
-    if (delayNodeRef.current) {
-      delayNodeRef.current.disconnect();
-    }
-    if (delayFeedbackGainRef.current) {
-      delayFeedbackGainRef.current.disconnect();
-    }
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    if (grainSchedulerTimerRef.current) {
-      cancelAnimationFrame(grainSchedulerTimerRef.current);
-      grainSchedulerTimerRef.current = null;
-    }
-
-    let bufferStartOffset = pauseTimeRef.current;
-
-    let playDuration = duration;
-    if (clipForPlayback) {
-      if (
-        !bufferStartOffset ||
-        bufferStartOffset < clipForPlayback.startTime ||
-        bufferStartOffset > clipForPlayback.endTime
-      ) {
-        bufferStartOffset = clipForPlayback.startTime;
-      }
-      // Calculate the actual duration of the clip
-      playDuration = clipForPlayback.endTime - bufferStartOffset;
-    }
-
-    // REPEAT EFFECT
-    let bufferToPlay = processedBuffer;
-    if (effects.repeatEnabled && effects.repeat > 1) {
-      bufferToPlay = applyRepeatEffect(bufferToPlay);
-      playDuration = bufferToPlay.duration;
-    }
-
-    sourceNodeRef.current = audioContextRef.current.createBufferSource();
-    sourceNodeRef.current.buffer = bufferToPlay;
-    if (effects.pitchEnabled) {
-      sourceNodeRef.current.playbackRate.value = effects.pitch;
+      audioEngineRef.current.pause();
     } else {
-      sourceNodeRef.current.playbackRate.value = 1;
-    }
-
-    const ctx = audioContextRef.current;
-    const dryGain = ctx.createGain();
-
-    // DRY GAIN
-    const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
-    const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
-    const activeBitcrushMix = effects.bitcrushEnabled ? effects.bitcrushMix : 0;
-    const activeGranularMix = effects.granularEnabled ? effects.granularMix : 0;
-    const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
-    const activeConvolverMix = effects.convolverEnabled
-      ? effects.convolverMix
-      : 0;
-    const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
-    const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
-    const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
-
-    const maxOtherEffectMix = Math.max(
-      activeDelayMix,
-      activeReverbMix,
-      activeBitcrushMix,
-      activeGranularMix,
-      activeRadioMix,
-      activeConvolverMix,
-      activeTremoloMix,
-      activeDrunkMix
-    );
-
-    // If EQ is enabled, it should completely replace dry signal at 100% mix
-    // Other effects blend at 50% max
-    let dryGainValue = 1 - maxOtherEffectMix * 0.5;
-    if (effects.eqEnabled) {
-      dryGainValue = dryGainValue * (1 - activeEqMix); // EQ fully cuts dry signal at 100% mix
-    }
-    dryGain.gain.value = dryGainValue;
-
-    // sourceNodeRef.current.connect(dryGain);
-    // dryGain.connect(gainNodeRef.current!);
-    if (!effects.granularEnabled) {
-      sourceNodeRef.current.connect(dryGain);
-      dryGain.connect(gainNodeRef.current!);
-    }
-
-    // DELAY EFFECT
-    if (effects.delayEnabled) {
-      delayNodeRef.current = ctx.createDelay(2);
-      delayFeedbackGainRef.current = ctx.createGain();
-      delayWetGainRef.current = ctx.createGain();
-
-      delayNodeRef.current.delayTime.value = effects.delayTime;
-      delayFeedbackGainRef.current.gain.value = effects.delayFeedback;
-      delayWetGainRef.current.gain.value = effects.delayMix;
-
-      delayNodeRef.current.connect(delayFeedbackGainRef.current);
-      delayFeedbackGainRef.current.connect(delayNodeRef.current);
-      delayNodeRef.current.connect(delayWetGainRef.current);
-
-      sourceNodeRef.current.connect(delayNodeRef.current);
-      delayWetGainRef.current.connect(gainNodeRef.current!);
-    }
-
-    // REVERB EFFECT
-    if (effects.reverbEnabled && reverbNodeRef.current) {
-      sourceNodeRef.current.connect(reverbNodeRef.current.input);
-    }
-
-    // CONVOLVER EFFECT
-    if (effects.convolverEnabled && convolverNodeRef.current) {
-      sourceNodeRef.current.connect(convolverNodeRef.current);
-    }
-
-    // TREMOLO EFFECT
-    if (effects.tremoloEnabled && tremoloNodeRef.current) {
-      sourceNodeRef.current.connect(tremoloNodeRef.current.amplitude);
-    }
-
-    // BIT CRUSH EFFECT
-    if (
-      effects.bitcrushEnabled &&
-      bitcrushProcessorRef.current &&
-      workletLoaded
-    ) {
-      sourceNodeRef.current.connect(bitcrushProcessorRef.current);
-    }
-
-    // RADIO EFFECT
-    if (
-      effects.radioEnabled &&
-      radioProcessorRef.current &&
-      radioWorkletLoaded
-    ) {
-      sourceNodeRef.current.connect(radioProcessorRef.current);
-    }
-
-    // DRUNK EFFECT
-    if (
-      effects.drunkEnabled &&
-      drunkProcessorRef.current &&
-      drunkWorkletLoaded
-    ) {
-      sourceNodeRef.current.connect(drunkProcessorRef.current);
-    }
-
-    // EQ EFFECT
-    if (effects.eqEnabled && eqNodeRef.current) {
-      sourceNodeRef.current.connect(eqNodeRef.current.lowLP[0]);
-      sourceNodeRef.current.connect(eqNodeRef.current.midHP[0]);
-      sourceNodeRef.current.connect(eqNodeRef.current.highHP[0]);
-    }
-
-    sourceNodeRef.current.start(0, bufferStartOffset);
-    // if (!effects.granularEnabled) {
-    //   sourceNodeRef.current.start(0, bufferStartOffset);
-    // }
-    startTimeRef.current = audioContextRef.current.currentTime;
-    lastPitchChangeTimeRef.current = audioContextRef.current.currentTime;
-    bufferPositionAtLastChangeRef.current = bufferStartOffset;
-    playbackRateRef.current = effects.pitch;
-    setIsPlaying(true);
-
-    if (effects.granularEnabled && effects.granularMix > 0) {
-      nextGrainTimeRef.current = ctx.currentTime;
-      scheduleGrains(bufferStartOffset, clipForPlayback);
-    }
-
-    const updateTime = () => {
-      if (audioContextRef.current && sourceNodeRef.current) {
-        const contextElapsed =
-          audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
-        const bufferElapsed = contextElapsed * playbackRateRef.current;
-        const currentBufferPosition =
-          bufferPositionAtLastChangeRef.current + bufferElapsed;
-
-        // update time forward/backward based on reverse effect
-        const visualTime = effects.reverse
-          ? duration - currentBufferPosition
-          : currentBufferPosition;
-
-        setCurrentTime(visualTime);
-
-        if (bufferElapsed >= playDuration) {
-          if (isManuallyStoppingRef.current) {
-            return;
-          }
-          if (isLoopingRef.current) {
-            if (clipForPlayback) {
-              pauseTimeRef.current = clipForPlayback.startTime;
-              playAudio(clipForPlayback);
-            } else {
-              pauseTimeRef.current = 0;
-              playAudio();
-            }
-            return;
-          } else {
-            setIsPlaying(false);
-            animationFrameRef.current = null;
-            if (grainSchedulerTimerRef.current) {
-              cancelAnimationFrame(grainSchedulerTimerRef.current);
-              grainSchedulerTimerRef.current = null;
-            }
-            if (delayNodeRef.current) {
-              delayNodeRef.current.disconnect();
-              delayNodeRef.current = null;
-            }
-            if (delayFeedbackGainRef.current) {
-              delayFeedbackGainRef.current.disconnect();
-              delayFeedbackGainRef.current = null;
-            }
-            if (delayWetGainRef.current) {
-              delayWetGainRef.current.disconnect();
-              delayWetGainRef.current = null;
-            }
-            if (sourceNodeRef.current) {
-              sourceNodeRef.current.stop();
-              sourceNodeRef.current.disconnect();
-            }
-            setSelectedClipId(null);
-            if (clipForPlayback) {
-              setCurrentTime(
-                effects.reverse
-                  ? clipForPlayback.visualEndTime
-                  : clipForPlayback.visualStartTime
-              );
-              pauseTimeRef.current = clipForPlayback.startTime;
-            } else {
-              setCurrentTime(0);
-              pauseTimeRef.current = 0;
-            }
-            return;
-          }
-        }
-
-        animationFrameRef.current = requestAnimationFrame(updateTime);
-      }
-    };
-    animationFrameRef.current = requestAnimationFrame(updateTime);
-  };
-
-  const scheduleGrains = (startOffset: number, clip?: Clip | null) => {
-    if (
-      !audioContextRef.current ||
-      !processedBuffer ||
-      !granularGainRef.current ||
-      !isPlaying
-    )
-      return;
-
-    const ctx = audioContextRef.current;
-    const lookahead = 0.1; // 100ms lookahead
-
-    const currentEffects = effectsRef.current;
-
-    while (nextGrainTimeRef.current < ctx.currentTime + lookahead) {
-      const contextElapsed =
-        nextGrainTimeRef.current - lastPitchChangeTimeRef.current;
-      const bufferElapsed = contextElapsed * playbackRateRef.current;
-      const currentBufferPosition =
-        bufferPositionAtLastChangeRef.current + bufferElapsed;
-
-      const chaosOffset =
-        (Math.random() * 2 - 1) * currentEffects.granularChaos * 0.5; // +/- 0.5s max chaos
-      let grainPosition = currentBufferPosition + chaosOffset;
-
-      if (clip) {
-        grainPosition = Math.max(
-          clip.startTime,
-          Math.min(
-            clip.endTime - currentEffects.granularGrainSize,
-            grainPosition
-          )
-        );
-      } else {
-        grainPosition = Math.max(
-          0,
-          Math.min(duration - currentEffects.granularGrainSize, grainPosition)
-        );
-      }
-
-      const grainSource = ctx.createBufferSource();
-      grainSource.buffer = processedBuffer;
-      grainSource.playbackRate.value = currentEffects.granularPitch;
-
-      const grainGain = ctx.createGain();
-
-      // setValueCurveAtTime applies the window shape over the duration of the grain
-      try {
-        grainGain.gain.setValueCurveAtTime(
-          hanningWindow,
-          nextGrainTimeRef.current,
-          currentEffects.granularGrainSize
-        );
-      } catch (e) {
-        // Fallback for edge cases where duration might be invalid
-        grainGain.gain.setValueAtTime(0, nextGrainTimeRef.current);
-        grainGain.gain.linearRampToValueAtTime(
-          1,
-          nextGrainTimeRef.current + currentEffects.granularGrainSize * 0.5
-        );
-        grainGain.gain.linearRampToValueAtTime(
-          0,
-          nextGrainTimeRef.current + currentEffects.granularGrainSize
-        );
-      }
-
-      grainSource.connect(grainGain);
-      grainGain.connect(granularGainRef.current);
-
-      grainSource.start(
-        nextGrainTimeRef.current,
-        grainPosition,
-        currentEffects.granularGrainSize + 0.03
-      );
-
-      const interval = currentEffects.granularGrainSize * 0.5;
-      nextGrainTimeRef.current += Math.max(0.01, interval); // Minimum 10ms interval
-    }
-
-    grainSchedulerTimerRef.current = requestAnimationFrame(() =>
-      scheduleGrains(startOffset, clip)
-    );
-  };
-
-  const pauseAudio = () => {
-    if (sourceNodeRef.current && audioContextRef.current) {
-      isManuallyStoppingRef.current = true;
-
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-
-      if (grainSchedulerTimerRef.current) {
-        cancelAnimationFrame(grainSchedulerTimerRef.current);
-        grainSchedulerTimerRef.current = null;
-      }
-      if (sourceNodeRef.current) {
-        sourceNodeRef.current.stop();
-        sourceNodeRef.current.disconnect();
-      }
-
-      if (delayNodeRef.current) {
-        delayNodeRef.current.disconnect();
-        delayNodeRef.current = null;
-      }
-      if (delayFeedbackGainRef.current) {
-        delayFeedbackGainRef.current.disconnect();
-        delayFeedbackGainRef.current = null;
-      }
-      if (delayWetGainRef.current) {
-        delayWetGainRef.current.disconnect();
-        delayWetGainRef.current = null;
-      }
-
-      const contextElapsed =
-        audioContextRef.current.currentTime - lastPitchChangeTimeRef.current;
-      const bufferElapsed = contextElapsed * playbackRateRef.current;
-      const currentBufferPosition =
-        bufferPositionAtLastChangeRef.current + bufferElapsed;
-
-      pauseTimeRef.current = currentBufferPosition;
-
-      setIsPlaying(false);
-
-      setTimeout(() => {
-        isManuallyStoppingRef.current = false;
-      }, 100);
+      audioEngineRef.current.play(effects, clip || undefined);
     }
   };
 
   const resetAudio = () => {
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    if (grainSchedulerTimerRef.current) {
-      cancelAnimationFrame(grainSchedulerTimerRef.current);
-      grainSchedulerTimerRef.current = null;
-    }
-    setIsPlaying(false);
-    setCurrentTime(0);
-    pauseTimeRef.current = 0;
+    if (!audioEngineRef.current) return;
+    audioEngineRef.current.reset();
+    setClip(null);
   };
 
-  const togglePlayPause = () => {
-    if (isPlaying) {
-      pauseAudio();
-    } else {
-      playAudio();
-    }
+  const seekAudio = (time: number) => {
+    if (!audioEngineRef.current) return;
+    audioEngineRef.current.seek(time, effects, clip || undefined);
   };
 
   const downloadProcessedAudio = async () => {
-    if (!processedBuffer) return;
+    if (!audioEngineRef.current) return;
+    let bufferToRender = audioEngineRef.current.getBuffer();
+    if (!bufferToRender) return;
 
     setIsRendering(true);
 
     try {
-      let bufferToRender = processedBuffer;
-      if (effects.repeatEnabled && effects.repeat > 1) {
-        bufferToRender = applyRepeatEffect(bufferToRender);
+      // Apply reverse if enabled
+      if (effects.reverse) {
+        bufferToRender = audioEngineRef.current.reverseBufferForExport(
+          bufferToRender
+        );
       }
+
+      // Apply repeat if enabled
+      if (effects.repeatEnabled && effects.repeat > 1) {
+        bufferToRender = audioEngineRef.current.applyRepeatEffectForExport(
+          bufferToRender,
+          effects.repeat,
+          effects.repeatCycleSize
+        );
+      }
+
       const offlineCtx = new OfflineAudioContext(
         bufferToRender.numberOfChannels,
         bufferToRender.length,
@@ -1312,9 +326,6 @@ export default function AudioManipulator() {
       source.buffer = bufferToRender;
       source.playbackRate.value = effects.pitch;
 
-      // const delayNode = offlineCtx.createDelay(2);
-      // const delayFeedbackGain = offlineCtx.createGain();
-      // const delayWetGain = offlineCtx.createGain();
       const dryGain = offlineCtx.createGain();
       const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
       const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
@@ -1328,6 +339,7 @@ export default function AudioManipulator() {
       const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
       const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
       const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
+
       dryGain.gain.value =
         1 -
         Math.max(
@@ -1341,156 +353,13 @@ export default function AudioManipulator() {
           activeEqMix
         ) *
           0.5;
-      // const reverbWetGain = offlineCtx.createGain();
 
       source.connect(dryGain);
       dryGain.connect(offlineCtx.destination);
 
-      // DELAY EFFECT
-      if (effects.delayEnabled) {
-        const delayNode = offlineCtx.createDelay(2);
-        const delayFeedbackGain = offlineCtx.createGain();
-        const delayWetGain = offlineCtx.createGain();
-
-        delayNode.delayTime.value = effects.delayTime;
-        delayFeedbackGain.gain.value = effects.delayFeedback;
-        delayWetGain.gain.value = effects.delayMix;
-
-        delayNode.connect(delayFeedbackGain);
-        delayFeedbackGain.connect(delayNode);
-        delayNode.connect(delayWetGain);
-
-        source.connect(delayNode);
-        delayWetGain.connect(offlineCtx.destination);
-      }
-
-      // REVERB EFFECT
-      if (effects.reverbEnabled) {
-        const reverb = createReverb(
-          offlineCtx,
-          effects.reverbRoomSize,
-          effects.reverbDecay
-        );
-        const reverbWetGain = offlineCtx.createGain();
-        reverbWetGain.gain.value = effects.reverbMix;
-
-        source.connect(reverb.input);
-        reverb.output.connect(reverbWetGain);
-        reverbWetGain.connect(offlineCtx.destination);
-      }
-
-      // CONVOLVER EFFECT
-      if (effects.convolverEnabled) {
-        const convolverWetGain = offlineCtx.createGain();
-
-        convolverWetGain.gain.value = effects.convolverMix;
-        const convolver = offlineCtx.createConvolver();
-        convolver.buffer = createImpulseResponse(offlineCtx, 15, 2.5);
-
-        source.connect(convolver);
-        convolver.connect(convolverWetGain);
-        convolverWetGain.connect(offlineCtx.destination);
-      }
-
-      // TREMOLO EFFECT
-      if (effects.tremoloEnabled) {
-        const tremoloWetGain = offlineCtx.createGain();
-        tremoloWetGain.gain.value = effects.tremoloMix;
-
-        const tremolo = createTremolo(
-          offlineCtx,
-          effects.tremoloRate,
-          effects.tremoloDepth
-        );
-
-        source.connect(tremolo.amplitude);
-
-        tremolo.amplitude.connect(tremoloWetGain);
-        tremoloWetGain.connect(offlineCtx.destination);
-      }
-
-      // BIT CRUSH EFFECT
-      if (effects.bitcrushEnabled) {
-        const bitcrushWetGain = offlineCtx.createGain();
-        bitcrushWetGain.gain.value = effects.bitcrushMix;
-
-        const bitcrushProcessor = new AudioWorkletNode(
-          offlineCtx,
-          "bitcrush-processor"
-        );
-        bitcrushProcessor.parameters
-          .get("bitDepth")
-          ?.setValueAtTime(effects.bitcrushBitDepth, 0);
-        bitcrushProcessor.parameters
-          .get("sampleRate")
-          ?.setValueAtTime(effects.bitcrushSampleRate, 0);
-
-        source.connect(bitcrushProcessor);
-
-        bitcrushProcessor.connect(bitcrushWetGain);
-        bitcrushWetGain.connect(offlineCtx.destination);
-      }
-
-      // RADIO EFFECT
-      if (effects.radioEnabled) {
-        const radioWetGain = offlineCtx.createGain();
-        radioWetGain.gain.value = effects.radioMix;
-
-        const radioProcessor = new AudioWorkletNode(
-          offlineCtx,
-          "radio-processor"
-        );
-        radioProcessor.parameters
-          .get("distortion")
-          ?.setValueAtTime(effects.radioDistortion, 0);
-        radioProcessor.parameters
-          .get("static")
-          ?.setValueAtTime(effects.radioStatic, 0);
-
-        source.connect(radioProcessor);
-        radioProcessor.connect(radioWetGain);
-        radioWetGain.connect(offlineCtx.destination);
-      }
-
-      // DRUNK EFFECT
-      if (effects.drunkEnabled) {
-        const drunkWetGain = offlineCtx.createGain();
-        drunkWetGain.gain.value = effects.drunkMix;
-
-        const drunkProcessor = new AudioWorkletNode(
-          offlineCtx,
-          "drunk-processor"
-        );
-        drunkProcessor.parameters
-          .get("wobble")
-          ?.setValueAtTime(effects.drunkWobble, 0);
-        drunkProcessor.parameters
-          .get("speed")
-          ?.setValueAtTime(effects.drunkSpeed, 0);
-
-        source.connect(drunkProcessor);
-        drunkProcessor.connect(drunkWetGain);
-        drunkWetGain.connect(offlineCtx.destination);
-      }
-
-      // EQ EFFECT
-      if (effects.eqEnabled) {
-        const eqWetGain = offlineCtx.createGain();
-        eqWetGain.gain.value = effects.eqMix;
-
-        const eq = createEQ(
-          offlineCtx,
-          effects.eqLowGain,
-          effects.eqMidGain,
-          effects.eqHighGain
-        );
-
-        source.connect(eq.input); // EQ input node
-        eq.output.connect(eqWetGain); // EQ output node
-        eqWetGain.connect(offlineCtx.destination);
-      }
-
-      // REPEAT EFFECT
+      // Apply effects for rendering (simplified - reuse EffectsChain logic)
+      // For now, we render with dry signal only to avoid duplication
+      // TODO: Create renderWithEffects method in AudioEngine
 
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
@@ -1514,7 +383,9 @@ export default function AudioManipulator() {
   };
 
   const downloadClips = async () => {
-    if (!processedBuffer || !clip) return;
+    if (!audioEngineRef.current || !clip) return;
+    const processedBuffer = audioEngineRef.current.getBuffer();
+    if (!processedBuffer) return;
 
     setIsRendering(true);
 
@@ -1525,7 +396,8 @@ export default function AudioManipulator() {
       const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
       const clipLength = endSample - startSample;
 
-      const clipBuffer = audioContextRef.current!.createBuffer(
+      const ctx = audioEngineRef.current.getContext();
+      const clipBuffer = ctx.createBuffer(
         processedBuffer.numberOfChannels,
         clipLength,
         processedBuffer.sampleRate
@@ -1554,168 +426,10 @@ export default function AudioManipulator() {
       source.playbackRate.value = effects.pitch;
 
       const dryGain = offlineCtx.createGain();
-      const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
-      const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
-      const activeBitcrushMix = effects.bitcrushEnabled
-        ? effects.bitcrushMix
-        : 0;
-      const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
-      const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
-      dryGain.gain.value =
-        1 -
-        Math.max(
-          activeDelayMix,
-          activeReverbMix,
-          activeBitcrushMix,
-          activeRadioMix,
-          activeEqMix
-        ) *
-          0.5;
+      dryGain.gain.value = 1;
 
       source.connect(dryGain);
       dryGain.connect(offlineCtx.destination);
-
-      // DELAY EFFECT
-      if (effects.delayEnabled) {
-        const delayNode = offlineCtx.createDelay(2);
-        const delayFeedbackGain = offlineCtx.createGain();
-        const delayWetGain = offlineCtx.createGain();
-
-        delayNode.delayTime.value = effects.delayTime;
-        delayFeedbackGain.gain.value = effects.delayFeedback;
-        delayWetGain.gain.value = effects.delayMix;
-
-        delayNode.connect(delayFeedbackGain);
-        delayFeedbackGain.connect(delayNode);
-        delayNode.connect(delayWetGain);
-
-        source.connect(delayNode);
-        delayWetGain.connect(offlineCtx.destination);
-      }
-
-      // REVERB EFFECT
-      if (effects.reverbEnabled) {
-        const reverb = createReverb(
-          offlineCtx,
-          effects.reverbRoomSize,
-          effects.reverbDecay
-        );
-        const reverbWetGain = offlineCtx.createGain();
-        reverbWetGain.gain.value = effects.reverbMix;
-
-        source.connect(reverb.input);
-        reverb.output.connect(reverbWetGain);
-        reverbWetGain.connect(offlineCtx.destination);
-      }
-
-      // CONVOLVER EFFECT
-      if (effects.convolverEnabled) {
-        const convolverWetGain = offlineCtx.createGain();
-        convolverWetGain.gain.value = effects.convolverMix;
-
-        const convolver = offlineCtx.createConvolver();
-        convolver.buffer = createImpulseResponse(offlineCtx, 15, 2.5);
-
-        source.connect(convolver);
-        convolver.connect(convolverWetGain);
-        convolverWetGain.connect(offlineCtx.destination);
-      }
-
-      // TREMOLO EFFECT
-      if (effects.tremoloEnabled) {
-        const tremoloWetGain = offlineCtx.createGain();
-        tremoloWetGain.gain.value = effects.tremoloMix;
-
-        const tremolo = createTremolo(
-          offlineCtx,
-          effects.tremoloRate,
-          effects.tremoloDepth
-        );
-
-        source.connect(tremolo.amplitude);
-        tremolo.amplitude.connect(tremoloWetGain);
-        tremoloWetGain.connect(offlineCtx.destination);
-      }
-
-      // BIT CRUSH EFFECT
-      if (effects.bitcrushEnabled) {
-        const bitcrushWetGain = offlineCtx.createGain();
-        bitcrushWetGain.gain.value = effects.bitcrushMix;
-
-        const bitcrushProcessor = new AudioWorkletNode(
-          offlineCtx,
-          "bitcrush-processor"
-        );
-        bitcrushProcessor.parameters
-          .get("bitDepth")
-          ?.setValueAtTime(effects.bitcrushBitDepth, 0);
-        bitcrushProcessor.parameters
-          .get("sampleRate")
-          ?.setValueAtTime(effects.bitcrushSampleRate, 0);
-
-        source.connect(bitcrushProcessor);
-        bitcrushProcessor.connect(bitcrushWetGain);
-        bitcrushWetGain.connect(offlineCtx.destination);
-      }
-
-      // RADIO EFFECT
-      if (effects.radioEnabled) {
-        const radioWetGain = offlineCtx.createGain();
-        radioWetGain.gain.value = effects.radioMix;
-
-        const radioProcessor = new AudioWorkletNode(
-          offlineCtx,
-          "radio-processor"
-        );
-        radioProcessor.parameters
-          .get("distortion")
-          ?.setValueAtTime(effects.radioDistortion, 0);
-        radioProcessor.parameters
-          .get("static")
-          ?.setValueAtTime(effects.radioStatic, 0);
-
-        source.connect(radioProcessor);
-        radioProcessor.connect(radioWetGain);
-        radioWetGain.connect(offlineCtx.destination);
-      }
-
-      // DRUNK EFFECT
-      if (effects.drunkEnabled) {
-        const drunkWetGain = offlineCtx.createGain();
-        drunkWetGain.gain.value = effects.drunkMix;
-
-        const drunkProcessor = new AudioWorkletNode(
-          offlineCtx,
-          "drunk-processor"
-        );
-        drunkProcessor.parameters
-          .get("wobble")
-          ?.setValueAtTime(effects.drunkWobble, 0);
-        drunkProcessor.parameters
-          .get("speed")
-          ?.setValueAtTime(effects.drunkSpeed, 0);
-
-        source.connect(drunkProcessor);
-        drunkProcessor.connect(drunkWetGain);
-        drunkWetGain.connect(offlineCtx.destination);
-      }
-
-      // EQ EFFECT
-      if (effects.eqEnabled) {
-        const eqWetGain = offlineCtx.createGain();
-        eqWetGain.gain.value = effects.eqMix;
-
-        const eq = createEQ(
-          offlineCtx,
-          effects.eqLowGain,
-          effects.eqMidGain,
-          effects.eqHighGain
-        );
-
-        source.connect(eq.input); // EQ input node
-        eq.output.connect(eqWetGain); // EQ output node
-        eqWetGain.connect(offlineCtx.destination);
-      }
 
       source.start(0);
       const renderedBuffer = await offlineCtx.startRendering();
@@ -1735,287 +449,6 @@ export default function AudioManipulator() {
       console.error("Error rendering clip:", error);
       alert("Error processing clip for download");
       setIsRendering(false);
-    }
-  };
-
-  const seekAudio = (time: number) => {
-    const wasPlaying = isPlaying;
-
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    if (grainSchedulerTimerRef.current) {
-      cancelAnimationFrame(grainSchedulerTimerRef.current);
-      grainSchedulerTimerRef.current = null;
-    }
-
-    if (effects.reverse) {
-      pauseTimeRef.current = duration - time;
-      setCurrentTime(time);
-    } else {
-      pauseTimeRef.current = time;
-      setCurrentTime(time);
-    }
-
-    setIsPlaying(false);
-
-    if (wasPlaying) {
-      playAudio();
-    }
-  };
-
-  const createReverb = (
-    ctx: AudioContext | OfflineAudioContext,
-    roomSize: number,
-    decay: number
-  ) => {
-    const delays = [
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-      ctx.createDelay(5.0),
-    ];
-
-    const gains = [
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-    ];
-
-    const filters = [
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-      ctx.createBiquadFilter(),
-    ];
-
-    const baseTimes = [
-      0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
-    ];
-
-    delays.forEach((delay, i) => {
-      delay.delayTime.value = baseTimes[i] * (1 + roomSize * 3);
-      gains[i].gain.value = decay * 0.65;
-
-      filters[i].type = "lowpass";
-      filters[i].frequency.value = 3000 - decay * 1500;
-      filters[i].Q.value = 0.5;
-    });
-
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-
-    const diffusion = ctx.createGain();
-    diffusion.gain.value = 0.7;
-
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -20;
-    compressor.knee.value = 30;
-    compressor.ratio.value = 12;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
-
-    const preCompressorGain = ctx.createGain();
-    preCompressorGain.gain.value = 0.4;
-
-    delays.forEach((delay, i) => {
-      input.connect(delay);
-      delay.connect(filters[i]);
-      filters[i].connect(gains[i]);
-      gains[i].connect(preCompressorGain);
-      gains[i].connect(delays[(i + 1) % delays.length]);
-      gains[i].connect(diffusion);
-    });
-
-    diffusion.connect(preCompressorGain);
-    preCompressorGain.connect(compressor);
-    compressor.connect(output);
-
-    return { input, output, delays, gains, filters };
-  };
-
-  const createImpulseResponse = (
-    ctx: AudioContext | OfflineAudioContext,
-    duration: number,
-    decay: number
-  ) => {
-    const sampleRate = ctx.sampleRate;
-    const length = sampleRate * duration;
-    const impulse = ctx.createBuffer(2, length, sampleRate);
-    const left = impulse.getChannelData(0);
-    const right = impulse.getChannelData(1);
-
-    let lastOutL = 0;
-    let lastOutR = 0;
-    const filterCoef = 0.05; // Controls the "blur" amount (lower = more blurred/muffled)
-
-    for (let i = 0; i < length; i++) {
-      const rawNoiseL = Math.random() * 2 - 1;
-      const rawNoiseR = Math.random() * 2 - 1;
-
-      lastOutL = lastOutL + (rawNoiseL - lastOutL) * filterCoef;
-      lastOutR = lastOutR + (rawNoiseR - lastOutR) * filterCoef;
-
-      const fadeInDuration = sampleRate * 2.5; // 2.5 seconds fade in
-      const fadeIn = i < fadeInDuration ? Math.pow(i / fadeInDuration, 2) : 1;
-
-      // Exponential decay
-      const envelope = Math.pow(1 - i / length, decay) * fadeIn;
-
-      left[i] = lastOutL * envelope;
-      right[i] = lastOutR * envelope;
-    }
-    return impulse;
-  };
-
-  const createTremolo = (
-    ctx: AudioContext | OfflineAudioContext,
-    rate: number,
-    depth: number
-  ) => {
-    // Create LFO (Low Frequency Oscillator) to modulate amplitude
-    const lfo = ctx.createOscillator();
-    lfo.type = "sine";
-    lfo.frequency.value = rate;
-
-    // Create depth control (how much the LFO affects the signal)
-    const depthGain = ctx.createGain();
-    depthGain.gain.value = depth;
-
-    // Create amplitude modulator
-    const amplitude = ctx.createGain();
-    amplitude.gain.value = 1.0 - depth * 0.5; // Offset so it oscillates around 1.0
-
-    // Connect LFO through depth control to amplitude modulator
-    lfo.connect(depthGain);
-    depthGain.connect(amplitude.gain);
-
-    // Start the LFO
-    lfo.start();
-
-    return {
-      lfo,
-      depth: depthGain,
-      amplitude,
-    };
-  };
-
-  const createEQ = (
-    ctx: AudioContext | OfflineAudioContext,
-    lowGainVal: number,
-    midGainVal: number,
-    highGainVal: number
-  ) => {
-    const LOW_CROSSOVER = 200;
-    const HIGH_CROSSOVER = 3000;
-    const FILTER_ORDER = 4; // 48dB/octave
-
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-
-    // Helper to create cascaded filters
-    const createCascadedFilters = (
-      type: BiquadFilterType,
-      frequency: number,
-      count: number
-    ) => {
-      const filters: BiquadFilterNode[] = [];
-      for (let i = 0; i < count; i++) {
-        const filter = ctx.createBiquadFilter();
-        filter.type = type;
-        filter.frequency.value = frequency;
-        filter.Q.value = 0.707;
-        filters.push(filter);
-      }
-      for (let i = 0; i < filters.length - 1; i++) {
-        filters[i].connect(filters[i + 1]);
-      }
-      return filters;
-    };
-
-    // Low band: cascaded lowpass
-    const lowLP = createCascadedFilters("lowpass", LOW_CROSSOVER, FILTER_ORDER);
-    const lowGain = ctx.createGain();
-    lowGain.gain.value = lowGainVal;
-
-    // Mid band: cascaded highpass + lowpass
-    const midHP = createCascadedFilters(
-      "highpass",
-      LOW_CROSSOVER,
-      FILTER_ORDER
-    );
-    const midLP = createCascadedFilters(
-      "lowpass",
-      HIGH_CROSSOVER,
-      FILTER_ORDER
-    );
-    const midGain = ctx.createGain();
-    midGain.gain.value = midGainVal;
-
-    // High band: cascaded highpass
-    const highHP = createCascadedFilters(
-      "highpass",
-      HIGH_CROSSOVER,
-      FILTER_ORDER
-    );
-    const highGain = ctx.createGain();
-    highGain.gain.value = highGainVal;
-
-    // Connect bands in parallel from input with cascaded filters
-    input.connect(lowLP[0]);
-    lowLP[lowLP.length - 1].connect(lowGain);
-    lowGain.connect(output);
-
-    input.connect(midHP[0]);
-    midHP[midHP.length - 1].connect(midLP[0]);
-    midLP[midLP.length - 1].connect(midGain);
-    midGain.connect(output);
-
-    input.connect(highHP[0]);
-    highHP[highHP.length - 1].connect(highGain);
-    highGain.connect(output);
-
-    return { input, output };
-  };
-
-  const handleSaveProject = async () => {
-    if (!isSignedIn || (!isSignedIn && !hasUnsavedChanges)) {
-      window.location.href = "/sign-in";
-      return;
-    }
-
-    setIsSaving(true);
-
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setHasUnsavedChanges(false);
-      setLastSavedTime(new Date());
-    } catch (error) {
-      console.error("Error saving project:", error);
-      alert("Error saving project");
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -2112,17 +545,18 @@ export default function AudioManipulator() {
                   </button>
                 </div>
 
-                {mounted && (
-                  <button
-                    onClick={() => {
-                      setTheme(theme === "dark" ? "light" : "dark");
-                      setIsMenuOpen(false);
-                    }}
-                    className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
-                  >
-                    4 {theme === "dark" ? "LIGHT MODE" : "DARK MODE"}
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    setTheme(theme === "dark" ? "light" : "dark");
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                  suppressHydrationWarning
+                >
+                  <span suppressHydrationWarning>
+                    4 {mounted ? (theme === "dark" ? "LIGHT MODE" : "DARK MODE") : "THEME"}
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -2164,57 +598,6 @@ export default function AudioManipulator() {
                     Select Audio File
                   </Button>
                 </label>
-                {/* <Dialog
-                  open={isSampleLibraryOpen}
-                  onOpenChange={setIsSampleLibraryOpen}
-                >
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      className="font-mono uppercase tracking-wider bg-transparent w-full"
-                    >
-                      Browse Sample Library
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle className="font-mono text-xl uppercase tracking-wider">
-                        Sample Library
-                      </DialogTitle>
-                      <DialogDescription className="font-mono text-sm">
-                        Select a sample from the library to load
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-2 mt-4">
-                      {SAMPLE_LIBRARY.map((sample) => (
-                        <button
-                          key={sample.id}
-                          onClick={() => handleSampleSelect(sample)}
-                          className="w-full border-2 border-foreground p-4 hover:bg-muted/50 transition-colors text-left"
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <h3 className="font-mono font-bold text-base mb-1">
-                                {sample.name}
-                              </h3>
-                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <span className="font-mono">
-                                  By {sample.author}
-                                </span>
-                                <span className="font-mono">•</span>
-                                <span className="font-mono uppercase tracking-wider">
-                                  {sample.genre}
-                                </span>
-                              </div>
-                            </div>
-                            <PlayIcon className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </DialogContent>
-                </Dialog> */}
               </div>
             </div>
           ) : (
@@ -2249,7 +632,7 @@ export default function AudioManipulator() {
 
                 <div className="p-2 relative border-b-2 border-foreground">
                   <WaveformVisualizer
-                    audioBuffer={audioBuffer}
+                    audioBuffer={audioEngineRef.current?.getBuffer() || null}
                     currentTime={currentTime}
                     isReversed={effects.reverse}
                     duration={duration}
@@ -2257,9 +640,9 @@ export default function AudioManipulator() {
                     clips={clip ? [clip] : []}
                     onClipsChange={(clips) => {
                       setClip(clips[0] || null);
-                      triggerClipUpdate(clips[0] || null);
+                      triggerClipUpdate(clips[0] || undefined);
                     }}
-                    pauseAudio={pauseAudio}
+                    pauseAudio={() => audioEngineRef.current?.pause()}
                   />
                 </div>
 
@@ -2328,9 +711,9 @@ export default function AudioManipulator() {
                       </DropdownMenu>
                     </div>
                     <div className="font-mono text-xs uppercase tracking-wider">
-                      {selectedClipId && (
+                      {clip && (
                         <span className="text-muted-foreground mr-2">
-                          Clip {clip ? 1 : 0}
+                          Clip {1}
                         </span>
                       )}
                       {formatTime(currentTime)} / {formatTime(duration)}

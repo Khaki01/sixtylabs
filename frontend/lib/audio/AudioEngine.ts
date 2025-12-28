@@ -15,9 +15,8 @@ export class AudioEngine {
   private ctx: AudioContext;
   private effectsChain: EffectsChain;
 
-  // Audio buffers
-  private originalBuffer: AudioBuffer | null = null;
-  private processedBuffer: AudioBuffer | null = null;
+  // Audio buffer - always original, never modified
+  private audioBuffer: AudioBuffer | null = null;
 
   // Playback state
   private sourceNode: AudioBufferSourceNode | null = null;
@@ -35,6 +34,9 @@ export class AudioEngine {
   // Granular synthesis
   private nextGrainTime = 0;
   private grainSchedulerTimer: number | null = null;
+
+  // Repeat effect - for scheduling repeated segments
+  private repeatSourceNodes: AudioBufferSourceNode[] = [];
 
   // Animation frame for time updates
   private animationFrame: number | null = null;
@@ -69,36 +71,28 @@ export class AudioEngine {
   public async loadAudioFile(file: File): Promise<AudioBuffer> {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = await this.ctx.decodeAudioData(arrayBuffer);
-    this.originalBuffer = buffer;
-    this.processedBuffer = buffer;
+    this.audioBuffer = buffer;
     return buffer;
   }
 
   /**
-   * Get current audio buffer
+   * Get audio buffer (always returns original for waveform display)
    */
   public getBuffer(): AudioBuffer | null {
-    return this.processedBuffer;
+    return this.audioBuffer;
   }
 
   /**
-   * Get original audio buffer
+   * Get original audio buffer (same as getBuffer - kept for compatibility)
    */
   public getOriginalBuffer(): AudioBuffer | null {
-    return this.originalBuffer;
+    return this.audioBuffer;
   }
 
   /**
-   * Set processed buffer (e.g., after reversing)
+   * Create a reversed version of the buffer (private helper)
    */
-  public setProcessedBuffer(buffer: AudioBuffer) {
-    this.processedBuffer = buffer;
-  }
-
-  /**
-   * Reverse the audio buffer
-   */
-  public reverseBuffer(buffer: AudioBuffer): AudioBuffer {
+  private reverseBuffer(buffer: AudioBuffer): AudioBuffer {
     const reversedBuffer = this.ctx.createBuffer(
       buffer.numberOfChannels,
       buffer.length,
@@ -115,81 +109,6 @@ export class AudioEngine {
     }
 
     return reversedBuffer;
-  }
-
-  /**
-   * Apply repeat effect to buffer
-   */
-  public applyRepeatEffect(
-    buffer: AudioBuffer,
-    repeatFactor: number,
-    cycleSizeMs: number
-  ): AudioBuffer {
-    if (repeatFactor <= 1) {
-      return buffer;
-    }
-
-    const sampleRate = buffer.sampleRate;
-    const cycleSizeSamples = Math.floor((cycleSizeMs / 1000) * sampleRate);
-    const stretchFactor = repeatFactor;
-    const crossfadeSamples = Math.max(50, Math.floor(cycleSizeSamples * 0.1));
-
-    const newLength = Math.floor(buffer.length * stretchFactor);
-    const stretchedBuffer = this.ctx.createBuffer(
-      buffer.numberOfChannels,
-      newLength,
-      sampleRate
-    );
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const inputData = buffer.getChannelData(channel);
-      const outputData = stretchedBuffer.getChannelData(channel);
-
-      let outputIndex = 0;
-      let inputIndex = 0;
-
-      while (outputIndex < newLength && inputIndex < buffer.length) {
-        const cycleLength = Math.min(
-          cycleSizeSamples,
-          buffer.length - inputIndex
-        );
-        const repeatCount = Math.ceil(stretchFactor);
-
-        for (
-          let repeat = 0;
-          repeat < repeatCount && outputIndex < newLength;
-          repeat++
-        ) {
-          for (let i = 0; i < cycleLength && outputIndex < newLength; i++) {
-            let sample = inputData[inputIndex + i];
-
-            // Crossfade between repetitions
-            if (repeat > 0 && i < crossfadeSamples) {
-              const fadeIn = i / crossfadeSamples;
-              const prevSample =
-                outputData[outputIndex - crossfadeSamples + i] || 0;
-              const fadeOut = 1 - fadeIn;
-              sample = sample * fadeIn + prevSample * fadeOut;
-            }
-
-            if (
-              repeat < repeatCount - 1 &&
-              i >= cycleLength - crossfadeSamples
-            ) {
-              const fadeOut = (cycleLength - i) / crossfadeSamples;
-              sample = sample * fadeOut;
-            }
-
-            outputData[outputIndex] = sample;
-            outputIndex++;
-          }
-        }
-
-        inputIndex += cycleSizeSamples;
-      }
-    }
-
-    return stretchedBuffer;
   }
 
   /**
@@ -216,33 +135,56 @@ export class AudioEngine {
    * Play audio
    */
   public play(effects: EffectsState, clip?: Clip) {
-    if (!this.processedBuffer) return;
+    if (!this.audioBuffer) return;
 
     this.stop();
 
-    let bufferStartOffset = this.pauseTime;
-    let playDuration = this.processedBuffer.duration;
-
-    if (clip) {
-      if (
-        !bufferStartOffset ||
-        bufferStartOffset < clip.startTime ||
-        bufferStartOffset > clip.endTime
-      ) {
-        bufferStartOffset = clip.startTime;
-      }
-      playDuration = clip.endTime - bufferStartOffset;
+    // Determine which buffer to use
+    let bufferToPlay = this.audioBuffer;
+    if (effects.reverse) {
+      bufferToPlay = this.reverseBuffer(this.audioBuffer);
     }
 
-    // Apply repeat effect if enabled
-    let bufferToPlay = this.processedBuffer;
+    let bufferStartOffset = this.pauseTime;
+    let playDuration = bufferToPlay.duration;
+
+    // Handle clip playback
+    if (clip) {
+      if (effects.reverse) {
+        // When reversed, convert clip times
+        const reversedStart = bufferToPlay.duration - clip.endTime;
+        const reversedEnd = bufferToPlay.duration - clip.startTime;
+
+        if (
+          !bufferStartOffset ||
+          bufferStartOffset < reversedStart ||
+          bufferStartOffset > reversedEnd
+        ) {
+          bufferStartOffset = reversedStart;
+        }
+        playDuration = reversedEnd - bufferStartOffset;
+      } else {
+        if (
+          !bufferStartOffset ||
+          bufferStartOffset < clip.startTime ||
+          bufferStartOffset > clip.endTime
+        ) {
+          bufferStartOffset = clip.startTime;
+        }
+        playDuration = clip.endTime - bufferStartOffset;
+      }
+    }
+
+    // Handle repeat effect - don't pre-generate, use looping playback
     if (effects.repeatEnabled && effects.repeat > 1) {
-      bufferToPlay = this.applyRepeatEffect(
+      this.playWithRepeat(
         bufferToPlay,
-        effects.repeat,
-        effects.repeatCycleSize
+        bufferStartOffset,
+        playDuration,
+        effects,
+        clip
       );
-      playDuration = bufferToPlay.duration;
+      return;
     }
 
     // Create source node
@@ -351,7 +293,7 @@ export class AudioEngine {
     this.startTime = this.ctx.currentTime;
     this.lastPitchChangeTime = this.ctx.currentTime;
     this.bufferPositionAtLastChange = bufferStartOffset;
-    this.playbackRate = effects.pitch;
+    this.playbackRate = effects.pitchEnabled ? effects.pitch : 1;
     this.isPlaying = true;
 
     if (this.onPlayStateChange) {
@@ -361,11 +303,103 @@ export class AudioEngine {
     // Start granular synthesis if enabled
     if (effects.granularEnabled && effects.granularMix > 0) {
       this.nextGrainTime = this.ctx.currentTime;
-      this.scheduleGrains(bufferStartOffset, clip, effects);
+      this.scheduleGrains(bufferStartOffset, clip, effects, bufferToPlay);
     }
 
     // Start time update loop
     this.updateTime(playDuration, clip, effects);
+  }
+
+  /**
+   * Play with repeat effect using looped segments
+   */
+  private playWithRepeat(
+    buffer: AudioBuffer,
+    startOffset: number,
+    duration: number,
+    effects: EffectsState,
+    clip?: Clip
+  ) {
+    const cycleSizeSeconds = effects.repeatCycleSize / 1000;
+    const repeatCount = Math.ceil(effects.repeat);
+
+    // Calculate how many segments we need to play
+    const segmentDuration = Math.min(cycleSizeSeconds, duration);
+    const totalDuration = duration * effects.repeat;
+
+    // Use a single looped source instead of creating multiple sources
+    this.sourceNode = this.ctx.createBufferSource();
+    this.sourceNode.buffer = buffer;
+    this.sourceNode.loop = true;
+    this.sourceNode.loopStart = startOffset;
+    this.sourceNode.loopEnd = Math.min(
+      startOffset + segmentDuration,
+      buffer.duration
+    );
+
+    if (effects.pitchEnabled) {
+      this.sourceNode.playbackRate.value = effects.pitch;
+    } else {
+      this.sourceNode.playbackRate.value = 1;
+    }
+
+    // Connect to output with basic routing
+    const dryGain = this.ctx.createGain();
+    dryGain.gain.value = 1;
+    this.sourceNode.connect(dryGain);
+    dryGain.connect(this.effectsChain.gainNode);
+
+    // Connect effects (simplified for repeat)
+    this.connectEffectsForRepeat(effects);
+
+    // Start playback
+    this.sourceNode.start(0, startOffset);
+
+    // Schedule stop after total duration
+    const actualDuration = totalDuration / (effects.pitchEnabled ? effects.pitch : 1);
+    this.sourceNode.stop(this.ctx.currentTime + actualDuration);
+
+    this.startTime = this.ctx.currentTime;
+    this.lastPitchChangeTime = this.ctx.currentTime;
+    this.bufferPositionAtLastChange = startOffset;
+    this.playbackRate = effects.pitchEnabled ? effects.pitch : 1;
+    this.isPlaying = true;
+
+    if (this.onPlayStateChange) {
+      this.onPlayStateChange(true);
+    }
+
+    // Start time update loop
+    this.updateTime(totalDuration, clip, effects);
+  }
+
+  /**
+   * Connect effects for repeat playback (simplified)
+   */
+  private connectEffectsForRepeat(effects: EffectsState) {
+    if (!this.sourceNode) return;
+
+    if (effects.delayEnabled) {
+      const { delay, wetGain } = this.effectsChain.createDelayForPlayback(
+        effects.delayTime,
+        effects.delayFeedback,
+        effects.delayMix
+      );
+      this.sourceNode.connect(delay);
+      wetGain.connect(this.effectsChain.gainNode);
+    }
+
+    if (effects.reverbEnabled && this.effectsChain.reverbNode) {
+      this.sourceNode.connect(this.effectsChain.reverbNode.input);
+    }
+
+    if (effects.convolverEnabled && this.effectsChain.convolverNode) {
+      this.sourceNode.connect(this.effectsChain.convolverNode);
+    }
+
+    if (effects.tremoloEnabled && this.effectsChain.tremoloNode) {
+      this.sourceNode.connect(this.effectsChain.tremoloNode.amplitude);
+    }
   }
 
   /**
@@ -374,17 +408,14 @@ export class AudioEngine {
   private scheduleGrains(
     startOffset: number,
     clip: Clip | undefined,
-    effects: EffectsState
+    effects: EffectsState,
+    bufferToPlay: AudioBuffer
   ) {
-    if (
-      !this.processedBuffer ||
-      !this.effectsChain.granularGain ||
-      !this.isPlaying
-    )
+    if (!bufferToPlay || !this.effectsChain.granularGain || !this.isPlaying)
       return;
 
     const lookahead = 0.1;
-    const duration = this.processedBuffer.duration;
+    const duration = bufferToPlay.duration;
 
     while (this.nextGrainTime < this.ctx.currentTime + lookahead) {
       const contextElapsed = this.nextGrainTime - this.lastPitchChangeTime;
@@ -397,9 +428,15 @@ export class AudioEngine {
       let grainPosition = currentBufferPosition + chaosOffset;
 
       if (clip) {
+        const clipStart = effects.reverse
+          ? duration - clip.endTime
+          : clip.startTime;
+        const clipEnd = effects.reverse
+          ? duration - clip.startTime
+          : clip.endTime;
         grainPosition = Math.max(
-          clip.startTime,
-          Math.min(clip.endTime - effects.granularGrainSize, grainPosition)
+          clipStart,
+          Math.min(clipEnd - effects.granularGrainSize, grainPosition)
         );
       } else {
         grainPosition = Math.max(
@@ -409,7 +446,7 @@ export class AudioEngine {
       }
 
       const grainSource = this.ctx.createBufferSource();
-      grainSource.buffer = this.processedBuffer;
+      grainSource.buffer = bufferToPlay;
       grainSource.playbackRate.value = effects.granularPitch;
 
       const grainGain = this.ctx.createGain();
@@ -446,7 +483,7 @@ export class AudioEngine {
     }
 
     this.grainSchedulerTimer = requestAnimationFrame(() =>
-      this.scheduleGrains(startOffset, clip, effects)
+      this.scheduleGrains(startOffset, clip, effects, bufferToPlay)
     );
   }
 
@@ -458,17 +495,23 @@ export class AudioEngine {
     clip: Clip | undefined,
     effects: EffectsState
   ) {
-    if (!this.sourceNode) return;
+    if (!this.sourceNode || !this.audioBuffer) return;
 
     const contextElapsed = this.ctx.currentTime - this.lastPitchChangeTime;
     const bufferElapsed = contextElapsed * this.playbackRate;
     const currentBufferPosition =
       this.bufferPositionAtLastChange + bufferElapsed;
 
-    const duration = this.processedBuffer?.duration || 0;
-    const visualTime = effects.reverse
-      ? duration - currentBufferPosition
-      : currentBufferPosition;
+    const duration = this.audioBuffer.duration;
+
+    // Calculate visual time (for display in UI)
+    // When reversed, we need to show the time from the original buffer perspective
+    let visualTime;
+    if (effects.reverse) {
+      visualTime = duration - currentBufferPosition;
+    } else {
+      visualTime = currentBufferPosition;
+    }
 
     if (this.onTimeUpdate) {
       this.onTimeUpdate(visualTime);
@@ -481,7 +524,9 @@ export class AudioEngine {
 
       if (this.isLooping) {
         if (clip) {
-          this.pauseTime = clip.startTime;
+          this.pauseTime = effects.reverse
+            ? duration - clip.endTime
+            : clip.startTime;
           this.play(effects, clip);
         } else {
           this.pauseTime = 0;
@@ -525,6 +570,13 @@ export class AudioEngine {
       this.sourceNode.disconnect();
     }
 
+    // Stop all repeat sources
+    this.repeatSourceNodes.forEach((source) => {
+      source.stop();
+      source.disconnect();
+    });
+    this.repeatSourceNodes = [];
+
     const contextElapsed = this.ctx.currentTime - this.lastPitchChangeTime;
     const bufferElapsed = contextElapsed * this.playbackRate;
     const currentBufferPosition =
@@ -551,6 +603,13 @@ export class AudioEngine {
       this.sourceNode.disconnect();
       this.sourceNode = null;
     }
+
+    // Stop all repeat sources
+    this.repeatSourceNodes.forEach((source) => {
+      source.stop();
+      source.disconnect();
+    });
+    this.repeatSourceNodes = [];
 
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
@@ -591,6 +650,13 @@ export class AudioEngine {
       this.sourceNode.disconnect();
     }
 
+    // Stop all repeat sources
+    this.repeatSourceNodes.forEach((source) => {
+      source.stop();
+      source.disconnect();
+    });
+    this.repeatSourceNodes = [];
+
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
       this.animationFrame = null;
@@ -601,7 +667,10 @@ export class AudioEngine {
       this.grainSchedulerTimer = null;
     }
 
-    const duration = this.processedBuffer?.duration || 0;
+    const duration = this.audioBuffer?.duration || 0;
+
+    // When seeking, time is always in original buffer coordinates
+    // If reversed, we need to convert it for internal playback
     if (effects.reverse) {
       this.pauseTime = duration - time;
     } else {
@@ -657,6 +726,87 @@ export class AudioEngine {
     this.pauseTime = currentBufferPosition;
     this.pause();
     this.play(effects, clip);
+  }
+
+  /**
+   * Create reversed buffer for export (kept for download functionality)
+   */
+  public reverseBufferForExport(buffer: AudioBuffer): AudioBuffer {
+    return this.reverseBuffer(buffer);
+  }
+
+  /**
+   * Apply repeat effect for export (creates stretched buffer for download)
+   */
+  public applyRepeatEffectForExport(
+    buffer: AudioBuffer,
+    repeatFactor: number,
+    cycleSizeMs: number
+  ): AudioBuffer {
+    if (repeatFactor <= 1) {
+      return buffer;
+    }
+
+    const sampleRate = buffer.sampleRate;
+    const cycleSizeSamples = Math.floor((cycleSizeMs / 1000) * sampleRate);
+    const stretchFactor = repeatFactor;
+    const crossfadeSamples = Math.max(50, Math.floor(cycleSizeSamples * 0.1));
+
+    const newLength = Math.floor(buffer.length * stretchFactor);
+    const stretchedBuffer = this.ctx.createBuffer(
+      buffer.numberOfChannels,
+      newLength,
+      sampleRate
+    );
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const inputData = buffer.getChannelData(channel);
+      const outputData = stretchedBuffer.getChannelData(channel);
+
+      let outputIndex = 0;
+      let inputIndex = 0;
+
+      while (outputIndex < newLength && inputIndex < buffer.length) {
+        const cycleLength = Math.min(
+          cycleSizeSamples,
+          buffer.length - inputIndex
+        );
+        const repeatCount = Math.ceil(stretchFactor);
+
+        for (
+          let repeat = 0;
+          repeat < repeatCount && outputIndex < newLength;
+          repeat++
+        ) {
+          for (let i = 0; i < cycleLength && outputIndex < newLength; i++) {
+            let sample = inputData[inputIndex + i];
+
+            if (repeat > 0 && i < crossfadeSamples) {
+              const fadeIn = i / crossfadeSamples;
+              const prevSample =
+                outputData[outputIndex - crossfadeSamples + i] || 0;
+              const fadeOut = 1 - fadeIn;
+              sample = sample * fadeIn + prevSample * fadeOut;
+            }
+
+            if (
+              repeat < repeatCount - 1 &&
+              i >= cycleLength - crossfadeSamples
+            ) {
+              const fadeOut = (cycleLength - i) / crossfadeSamples;
+              sample = sample * fadeOut;
+            }
+
+            outputData[outputIndex] = sample;
+            outputIndex++;
+          }
+        }
+
+        inputIndex += cycleSizeSamples;
+      }
+    }
+
+    return stretchedBuffer;
   }
 
   /**

@@ -1,3 +1,5 @@
+"use client";
+
 import AudioManipulator from "@/components/audio-manipulator"
 
 export default function App() {

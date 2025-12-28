@@ -153,44 +153,27 @@ export const EFFECT_METADATA: Record<EffectType, EffectMetadata> = {
 
 // Sampler/Sequencer types
 
-export interface PadEffects {
-  pitch: number; // Playback rate (0.25 - 4.0)
-  reverse: boolean; // Reverse audio playback
-  delayMix: number; // Delay wet/dry mix (0 - 1)
-  reverbMix: number; // Reverb wet/dry mix (0 - 1)
-}
-
 export interface SamplerPad {
   id: number; // 0-15
   clipId: string | null; // Reference to assigned Clip
-  effects: PadEffects; // Per-pad effect settings
   isPlaying: boolean; // Currently playing state
   keyBinding: string; // Keyboard shortcut (1-4, Q-W-E-R, etc.)
 }
 
 export interface SequencerState {
-  isEnabled: boolean; // Sequencer mode active
   bpm: number; // Beats per minute (60-240)
   currentStep: number; // Current step in sequence (0-15)
   isPlaying: boolean; // Sequencer is playing
-  sequence: number[]; // Array of pad indices to play in order
 }
 
 export interface SamplerState {
   pads: SamplerPad[]; // 16 pads
   clips: Clip[]; // Multiple clips (replaces single clip)
   sequencer: SequencerState; // Sequencer state
-  mode: 'realtime' | 'sequencer'; // Current mode
+  mode: 'sampler' | 'sequencer'; // Current mode
 }
 
 // Default values
-
-export const DEFAULT_PAD_EFFECTS: PadEffects = {
-  pitch: 1.0,
-  reverse: false,
-  delayMix: 0,
-  reverbMix: 0,
-};
 
 export const PAD_KEY_BINDINGS = [
   '1', '2', '3', '4',    // Row 1

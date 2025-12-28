@@ -11,14 +11,22 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@radix-ui/react-tooltip";
+import type { Clip } from "@/types/audio";
 
-export interface Clip {
-  id: string;
-  startTime: number;
-  endTime: number;
-  visualStartTime: number;
-  visualEndTime: number;
-}
+// Generate random color for clips
+const generateClipColor = (): string => {
+  const colors = [
+    'rgba(59, 130, 246, 0.3)',  // Blue
+    'rgba(16, 185, 129, 0.3)',  // Green
+    'rgba(245, 158, 11, 0.3)',  // Orange
+    'rgba(239, 68, 68, 0.3)',   // Red
+    'rgba(168, 85, 247, 0.3)',  // Purple
+    'rgba(236, 72, 153, 0.3)',  // Pink
+    'rgba(14, 165, 233, 0.3)',  // Sky
+    'rgba(34, 197, 94, 0.3)',   // Emerald
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
 
 interface WaveformVisualizerProps {
   audioBuffer: AudioBuffer | null;
@@ -122,7 +130,8 @@ export default function WaveformVisualizer({
         ((clip.visualEndTime - visibleStartTime) / visibleDuration) * width
       );
 
-      ctx.fillStyle = "rgba(128, 128, 128, 0.25)";
+      // Use clip's color or fallback to gray
+      ctx.fillStyle = clip.color || "rgba(128, 128, 128, 0.25)";
       ctx.fillRect(clipStartX, 0, clipEndX - clipStartX, height);
 
       const foregroundColor =
@@ -524,8 +533,11 @@ export default function WaveformVisualizer({
           endTime: isReversed ? duration - startTime : endTime,
           visualStartTime: startTime,
           visualEndTime: endTime,
+          color: generateClipColor(), // Add random color
+          name: `Clip ${clips.length + 1}`, // Auto-name clips
         };
-        onClipsChange([newClip]);
+        // Append to existing clips instead of replacing
+        onClipsChange([...clips, newClip]);
       }
 
       setIsCreatingClip(false);
@@ -661,8 +673,11 @@ export default function WaveformVisualizer({
           endTime: isReversed ? duration - startTime : endTime,
           visualStartTime: startTime,
           visualEndTime: endTime,
+          color: generateClipColor(), // Add random color
+          name: `Clip ${clips.length + 1}`, // Auto-name clips
         };
-        onClipsChange([newClip]);
+        // Append to existing clips instead of replacing
+        onClipsChange([...clips, newClip]);
       }
 
       setIsCreatingClip(false);

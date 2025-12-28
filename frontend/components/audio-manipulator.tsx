@@ -20,7 +20,6 @@ import WaveformVisualizer from "./waveform-visualizer";
 import EffectsPanel from "./effects-panel";
 import FeedbackDialog from "./feedback-dialog";
 import Link from "next/link";
-import type { Clip } from "./waveform-visualizer";
 import { isAuthenticated } from "@/lib/auth";
 import {
   DropdownMenu,
@@ -44,7 +43,6 @@ export default function AudioManipulator() {
   const [duration, setDuration] = useState(0);
   const [isRendering, setIsRendering] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
-  const [clip, setClip] = useState<Clip | null>(null);
   const [mounted, setMounted] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
 
@@ -137,7 +135,7 @@ export default function AudioManipulator() {
       onTimeUpdate: (time) => setCurrentTime(time),
       onPlayStateChange: (playing) => setIsPlaying(playing),
       onEnd: () => {
-        setCurrentTime(clip ? clip.visualStartTime : 0);
+        setCurrentTime(0);
       },
     });
 
@@ -185,7 +183,7 @@ export default function AudioManipulator() {
   useEffect(() => {
     if (isPlaying && audioEngineRef.current) {
       audioEngineRef.current.pause();
-      audioEngineRef.current.play(effects, clip || undefined);
+      audioEngineRef.current.play(effects);
     }
   }, [
     effects.pitchEnabled,
@@ -205,7 +203,7 @@ export default function AudioManipulator() {
   useEffect(() => {
     if (isPlaying && effects.repeatEnabled && audioEngineRef.current) {
       audioEngineRef.current.pause();
-      audioEngineRef.current.play(effects, clip || undefined);
+      audioEngineRef.current.play(effects);
     }
   }, [effects.repeat, effects.repeatCycleSize]);
 
@@ -213,17 +211,14 @@ export default function AudioManipulator() {
   useEffect(() => {
     if (isPlaying && effects.granularEnabled && audioEngineRef.current) {
       audioEngineRef.current.pause();
-      audioEngineRef.current.play(effects, clip || undefined);
+      audioEngineRef.current.play(effects);
     }
   }, [effects.granularGrainSize, effects.granularChaos]);
 
   // Handle pitch changes
   useEffect(() => {
     if (isPlaying && audioEngineRef.current) {
-      audioEngineRef.current.updatePlaybackAfterPitchChange(
-        effects,
-        clip || undefined
-      );
+      audioEngineRef.current.updatePlaybackAfterPitchChange(effects);
     }
   }, [effects.pitch]);
 
@@ -237,8 +232,8 @@ export default function AudioManipulator() {
     if (isPlaying) {
       audioEngineRef.current.pause();
       // Seek to the same visual position (seek handles the coordinate conversion)
-      audioEngineRef.current.seek(currentVisualTime, effects, clip || undefined);
-      audioEngineRef.current.play(effects, clip || undefined);
+      audioEngineRef.current.seek(currentVisualTime, effects);
+      audioEngineRef.current.play(effects);
     } else {
       // When paused, just update the internal position
       const newPauseTime = duration - audioEngineRef.current.getPauseTime();
@@ -270,37 +265,9 @@ export default function AudioManipulator() {
       setDuration(buffer.duration);
       setCurrentTime(0);
       setIsPlaying(false);
-      setClip(null);
     } catch (error) {
       console.error("Error loading audio file:", error);
       alert(`Error loading audio file: ${error}`);
-    }
-  };
-
-  const triggerClipUpdate = (input_clip?: Clip) => {
-    if (!audioEngineRef.current) return;
-
-    if (isPlaying && input_clip) {
-      const currentPosition = audioEngineRef.current.getPauseTime();
-
-      let isWithinNewClip;
-      if (effects.reverse) {
-        isWithinNewClip =
-          currentPosition >= input_clip.endTime &&
-          currentPosition <= input_clip.startTime;
-      } else {
-        isWithinNewClip =
-          currentPosition >= input_clip.startTime &&
-          currentPosition <= input_clip.endTime;
-      }
-
-      audioEngineRef.current.pause();
-      if (!isWithinNewClip) {
-        audioEngineRef.current.setPauseTime(input_clip.startTime);
-      }
-      audioEngineRef.current.play(effects, input_clip);
-    } else if (!input_clip) {
-      audioEngineRef.current.pause();
     }
   };
 
@@ -310,19 +277,20 @@ export default function AudioManipulator() {
     if (isPlaying) {
       audioEngineRef.current.pause();
     } else {
-      audioEngineRef.current.play(effects, clip || undefined);
+      // Main player plays full audio (no clip parameter)
+      audioEngineRef.current.play(effects);
     }
   };
 
   const resetAudio = () => {
     if (!audioEngineRef.current) return;
     audioEngineRef.current.reset();
-    setClip(null);
   };
 
   const seekAudio = (time: number) => {
     if (!audioEngineRef.current) return;
-    audioEngineRef.current.seek(time, effects, clip || undefined);
+    // Main player seeks in full audio (no clip parameter)
+    audioEngineRef.current.seek(time, effects);
   };
 
   const downloadProcessedAudio = async () => {
@@ -415,75 +383,7 @@ export default function AudioManipulator() {
     }
   };
 
-  const downloadClips = async () => {
-    if (!audioEngineRef.current || !clip) return;
-    const processedBuffer = audioEngineRef.current.getBuffer();
-    if (!processedBuffer) return;
-
-    setIsRendering(true);
-
-    try {
-      const startSample = Math.floor(
-        clip.startTime * processedBuffer.sampleRate
-      );
-      const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-      const clipLength = endSample - startSample;
-
-      const ctx = audioEngineRef.current.getContext();
-      const clipBuffer = ctx.createBuffer(
-        processedBuffer.numberOfChannels,
-        clipLength,
-        processedBuffer.sampleRate
-      );
-
-      for (
-        let channel = 0;
-        channel < processedBuffer.numberOfChannels;
-        channel++
-      ) {
-        const sourceData = processedBuffer.getChannelData(channel);
-        const clipData = clipBuffer.getChannelData(channel);
-        for (let j = 0; j < clipLength; j++) {
-          clipData[j] = sourceData[startSample + j];
-        }
-      }
-
-      const offlineCtx = new OfflineAudioContext(
-        clipBuffer.numberOfChannels,
-        clipBuffer.length,
-        clipBuffer.sampleRate
-      );
-
-      const source = offlineCtx.createBufferSource();
-      source.buffer = clipBuffer;
-      source.playbackRate.value = effects.pitch;
-
-      const dryGain = offlineCtx.createGain();
-      dryGain.gain.value = 1;
-
-      source.connect(dryGain);
-      dryGain.connect(offlineCtx.destination);
-
-      source.start(0);
-      const renderedBuffer = await offlineCtx.startRendering();
-
-      const wavBlob = audioBufferToWav(renderedBuffer);
-      const url = URL.createObjectURL(wavBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `fourpage-clip-${clip.id}-${Date.now()}.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setIsRendering(false);
-    } catch (error) {
-      console.error("Error rendering clip:", error);
-      alert("Error processing clip for download");
-      setIsRendering(false);
-    }
-  };
+  // Clip download will be handled by sampler pads later
 
   return (
     <div className="min-h-screen bg-background p-2 md:p-4">
@@ -670,10 +570,12 @@ export default function AudioManipulator() {
                     isReversed={effects.reverse}
                     duration={duration}
                     onSeek={seekAudio}
-                    clips={clip ? [clip] : []}
-                    onClipsChange={(clips) => {
-                      setClip(clips[0] || null);
-                      triggerClipUpdate(clips[0] || undefined);
+                    clips={samplerState.clips}
+                    onClipsChange={(newClips) => {
+                      setSamplerState((prev) => ({
+                        ...prev,
+                        clips: newClips,
+                      }));
                     }}
                     pauseAudio={() => audioEngineRef.current?.pause()}
                   />
@@ -731,24 +633,10 @@ export default function AudioManipulator() {
                             <Download className="w-4 h-4 mr-2" />
                             Full Audio
                           </DropdownMenuItem>
-                          {clip && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={downloadClips}>
-                                <Download className="w-4 h-4 mr-2" />
-                                Clip Only
-                              </DropdownMenuItem>
-                            </>
-                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
                     <div className="font-mono text-xs uppercase tracking-wider">
-                      {clip && (
-                        <span className="text-muted-foreground mr-2">
-                          Clip {1}
-                        </span>
-                      )}
                       {formatTime(currentTime)} / {formatTime(duration)}
                     </div>
                   </div>

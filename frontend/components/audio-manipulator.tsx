@@ -907,7 +907,7 @@ export default function AudioManipulator() {
               </div>
 
               {/* Sampler/Sequencer Section - directly under waveform */}
-              <div className="border-t-2 border-foreground pt-4">
+              <div className=" border-foreground pt-2">
                 <SamplerPads
                   pads={samplerState.pads}
                   clips={samplerState.clips}

@@ -224,17 +224,16 @@ export default function SamplerPads({
       </div>
 
       {/* Instructions */}
-      {mode === "sampler" && (
+      {/* {mode === "sampler" && (
         <div className="font-mono text-xs text-muted-foreground text-center space-y-1">
           <p>Click pads or use keyboard shortcuts to play clips</p>
-          <p className="text-[10px]">Use 3-dot menu to assign clips to pads</p>
         </div>
       )}
       {mode === "sequencer" && (
         <div className="font-mono text-xs text-muted-foreground text-center space-y-1">
           <p>Press main play button to auto-play assigned pads in sequence</p>
         </div>
-      )}
+      )} */}
     </div>
   );
 }

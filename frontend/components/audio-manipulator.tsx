@@ -209,13 +209,14 @@ export default function AudioManipulator() {
         ),
       }));
 
-      // Handle reverse: seek to end if reversed, start if not
+      // Reset and seek to correct position: end for reverse, start for normal
+      audioEngineRef.current.reset();
       const seekTime = currentEffects.reverse ? clip.visualEndTime : clip.visualStartTime;
       audioEngineRef.current.seek(seekTime, currentEffects, clip);
       audioEngineRef.current.play(currentEffects, clip);
 
-      // Calculate clip duration and tell sequencer to wait for it
-      const clipDuration = (clip.endTime - clip.startTime) / currentEffects.pitch;
+      // Calculate clip duration based on visual times
+      const clipDuration = (clip.visualEndTime - clip.visualStartTime) / (currentEffects.pitchEnabled ? currentEffects.pitch : 1);
       const clipDurationMs = clipDuration * 1000;
 
       // Set next step delay to clip duration
@@ -439,12 +440,15 @@ export default function AudioManipulator() {
       }));
     }
 
-    // Handle reverse: seek to end if reversed, start if not
+    // Reset audio engine before playing clip (clears pauseTime)
+    audioEngineRef.current.reset();
+
+    // Seek to correct position: end for reverse, start for normal
     const seekTime = effects.reverse ? clip.visualEndTime : clip.visualStartTime;
     audioEngineRef.current.seek(seekTime, effects, clip);
     audioEngineRef.current.play(effects, clip);
 
-    // Update pad playing state
+    // Update pad playing state (but don't make UI dark)
     setSamplerState(prev => ({
       ...prev,
       pads: prev.pads.map((p, i) =>
@@ -452,8 +456,8 @@ export default function AudioManipulator() {
       ),
     }));
 
-    // Auto-clear playing state after clip finishes
-    const clipDuration = (clip.endTime - clip.startTime) / effects.pitch;
+    // Calculate actual clip duration based on visual times
+    const clipDuration = (clip.visualEndTime - clip.visualStartTime) / (effects.pitchEnabled ? effects.pitch : 1);
     setTimeout(() => {
       setSamplerState(prev => ({
         ...prev,
@@ -880,6 +884,18 @@ export default function AudioManipulator() {
                   </div>
                 </div>
               </div>
+
+              {/* Sampler/Sequencer Section - directly under waveform */}
+              <div className="border-t-2 border-foreground pt-4">
+                <SamplerPads
+                  pads={samplerState.pads}
+                  clips={samplerState.clips}
+                  onPadTrigger={handlePadTrigger}
+                  onPadAssignClip={handlePadAssignClip}
+                  mode={samplerState.mode}
+                  onModeChange={handleModeChange}
+                />
+              </div>
             </>
           )}
         </div>
@@ -887,21 +903,6 @@ export default function AudioManipulator() {
         <div className="space-y-4">
           <EffectsPanel effects={effects} setEffects={setEffects} />
         </div>
-
-        {/* Sampler/Sequencer Section */}
-        {audioFile && (
-          <div className="lg:col-span-2 border-t-2 border-foreground pt-4 mt-4">
-            {/* Sampler Pads */}
-            <SamplerPads
-              pads={samplerState.pads}
-              clips={samplerState.clips}
-              onPadTrigger={handlePadTrigger}
-              onPadAssignClip={handlePadAssignClip}
-              mode={samplerState.mode}
-              onModeChange={handleModeChange}
-            />
-          </div>
-        )}
       </div>
 
       <footer className="border-t-2 border-foreground mt-6 pt-2">

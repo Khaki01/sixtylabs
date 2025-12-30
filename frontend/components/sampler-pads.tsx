@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { SamplerPad, Clip } from "@/types/audio";
 import { Button } from "@/components/ui/button";
+import { MoreVertical } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -116,103 +117,104 @@ export default function SamplerPads({
           const isPlaying = pad.isPlaying;
 
           return (
-            <DropdownMenu key={pad.id}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`
-                    relative h-20 w-full font-mono border-2 transition-all
-                    ${isPlaying
-                      ? 'bg-foreground text-background border-foreground scale-95'
-                      : isActive
-                        ? 'bg-muted border-foreground hover:bg-muted/80'
-                        : 'border-foreground/30 hover:border-foreground/50'
-                    }
-                  `}
-                  onClick={() => handlePadClick(pad.id)}
-                >
-                  <div className="flex flex-col items-center justify-center gap-1 w-full">
-                    {/* Key binding */}
-                    <div className={`
-                      text-xs font-bold
-                      ${isPlaying ? 'text-background' : 'text-muted-foreground'}
-                    `}>
-                      {pad.keyBinding}
-                    </div>
-
-                    {/* Clip name or empty state */}
-                    {display ? (
-                      <div className={`
-                        text-xs text-center truncate w-full px-1
-                        ${isPlaying ? 'text-background' : 'text-foreground'}
-                      `}>
-                        {display.label}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">
-                        Empty
-                      </div>
-                    )}
-
-                    {/* Pad number */}
-                    <div className={`
-                      text-[10px]
-                      ${isPlaying ? 'text-background/70' : 'text-muted-foreground/50'}
-                    `}>
-                      #{pad.id + 1}
-                    </div>
+            <div key={pad.id} className="relative">
+              {/* Main pad button - triggers playback */}
+              <Button
+                variant="outline"
+                className={`
+                  relative h-20 w-full font-mono border-2 transition-all
+                  ${isPlaying
+                    ? 'border-white shadow-[0_0_0_2px_white] animate-pulse'
+                    : isActive
+                      ? 'bg-muted border-foreground hover:bg-muted/80'
+                      : 'border-foreground/30 hover:border-foreground/50'
+                  }
+                `}
+                onClick={() => handlePadClick(pad.id)}
+              >
+                <div className="flex flex-col items-center justify-center gap-1 w-full">
+                  {/* Key binding */}
+                  <div className="text-xs font-bold text-muted-foreground">
+                    {pad.keyBinding}
                   </div>
-                </Button>
-              </DropdownMenuTrigger>
 
-              {/* Dropdown for clip assignment */}
-              <DropdownMenuContent className="font-mono">
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handlePadClick(pad.id);
-                  }}
-                >
-                  Trigger Pad
-                </DropdownMenuItem>
+                  {/* Clip name or empty state */}
+                  {display ? (
+                    <div className="text-xs text-center truncate w-full px-1 text-foreground">
+                      {display.label}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">
+                      Empty
+                    </div>
+                  )}
 
-                {clips.length > 0 && (
-                  <>
-                    <DropdownMenuItem
-                      className="text-xs text-muted-foreground"
-                      disabled
-                    >
-                      Assign Clip:
-                    </DropdownMenuItem>
-                    {clips.map((clip) => (
-                      <DropdownMenuItem
-                        key={clip.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAssignClip(pad.id, clip.id);
-                        }}
-                      >
-                        <span className="text-xs">
-                          {clip.name || `Clip ${clips.indexOf(clip) + 1}`}
-                        </span>
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
+                  {/* Pad number */}
+                  <div className="text-[10px] text-muted-foreground/50">
+                    #{pad.id + 1}
+                  </div>
+                </div>
+              </Button>
 
-                {pad.clipId && (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleAssignClip(pad.id, null);
-                    }}
-                    className="text-red-500"
+              {/* 3-dot menu button in top-right corner */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute top-1 right-1 h-5 w-5 p-0 hover:bg-muted"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    Clear Assignment
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+
+                {/* Dropdown for clip assignment */}
+                <DropdownMenuContent className="font-mono" align="end">
+                  {clips.length > 0 && (
+                    <>
+                      <DropdownMenuItem
+                        className="text-xs text-muted-foreground"
+                        disabled
+                      >
+                        Assign Clip:
+                      </DropdownMenuItem>
+                      {clips.map((clip, index) => (
+                        <DropdownMenuItem
+                          key={clip.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAssignClip(pad.id, clip.id);
+                          }}
+                        >
+                          <span className="text-xs">
+                            {index + 1}. {clip.name || `Clip ${index + 1}`}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
+
+                  {pad.clipId && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAssignClip(pad.id, null);
+                      }}
+                      className="text-red-500"
+                    >
+                      Clear Assignment
+                    </DropdownMenuItem>
+                  )}
+
+                  {clips.length === 0 && !pad.clipId && (
+                    <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                      No clips available
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           );
         })}
       </div>
@@ -220,8 +222,8 @@ export default function SamplerPads({
       {/* Instructions */}
       {mode === 'sampler' && (
         <div className="font-mono text-xs text-muted-foreground text-center space-y-1">
-          <p>Click pads or use keyboard shortcuts to trigger</p>
-          <p className="text-[10px]">Right-click or long-press to assign clips</p>
+          <p>Click pads or use keyboard shortcuts to play clips</p>
+          <p className="text-[10px]">Use 3-dot menu to assign clips to pads</p>
         </div>
       )}
       {mode === 'sequencer' && (

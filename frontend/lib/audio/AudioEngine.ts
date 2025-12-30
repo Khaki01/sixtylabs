@@ -39,6 +39,9 @@ export class AudioEngine {
   private cachedRepeatBuffer: AudioBuffer | null = null;
   private cachedRepeatParams: { factor: number; cycleSize: number; inputBuffer: AudioBuffer } | null = null;
 
+  // Track manual stop vs natural end
+  private isManualStop = false;
+
   // Animation frame for time updates
   private animationFrame: number | null = null;
 
@@ -163,12 +166,12 @@ export class AudioEngine {
     let bufferStartOffset = this.pauseTime;
     let playDuration = bufferToPlay.duration;
 
-    // Handle clip playback
+    // Handle clip playback - use visual times for consistent behavior
     if (clip) {
       if (effects.reverse) {
-        // When reversed, convert clip times
-        const reversedStart = bufferToPlay.duration - clip.endTime;
-        const reversedEnd = bufferToPlay.duration - clip.startTime;
+        // When reversed, convert visual clip times to reversed buffer coordinates
+        const reversedStart = bufferToPlay.duration - clip.visualEndTime;
+        const reversedEnd = bufferToPlay.duration - clip.visualStartTime;
 
         if (
           !bufferStartOffset ||
@@ -179,14 +182,15 @@ export class AudioEngine {
         }
         playDuration = reversedEnd - bufferStartOffset;
       } else {
+        // Normal playback uses visual times directly
         if (
           !bufferStartOffset ||
-          bufferStartOffset < clip.startTime ||
-          bufferStartOffset > clip.endTime
+          bufferStartOffset < clip.visualStartTime ||
+          bufferStartOffset > clip.visualEndTime
         ) {
-          bufferStartOffset = clip.startTime;
+          bufferStartOffset = clip.visualStartTime;
         }
-        playDuration = clip.endTime - bufferStartOffset;
+        playDuration = clip.visualEndTime - bufferStartOffset;
       }
     }
 
@@ -290,6 +294,20 @@ export class AudioEngine {
       this.sourceNode.connect(this.effectsChain.eqNode.midHP[0]);
       this.sourceNode.connect(this.effectsChain.eqNode.highHP[0]);
     }
+
+    // Set up end callback to update play state when audio finishes
+    this.sourceNode.onended = () => {
+      this.isPlaying = false;
+      if (this.onPlayStateChange) {
+        this.onPlayStateChange(false);
+      }
+      // Only call onEnd for natural ending, not manual pause/stop
+      if (!this.isManualStop && this.onEnd) {
+        this.onEnd();
+      }
+      // Reset flag
+      this.isManualStop = false;
+    };
 
     // Start playback
     this.sourceNode.start(0, bufferStartOffset);
@@ -465,6 +483,7 @@ export class AudioEngine {
     if (!this.sourceNode) return;
 
     this.isManuallyStoppingRef = true;
+    this.isManualStop = true; // Mark as manual stop to prevent onEnd callback
 
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
@@ -502,6 +521,8 @@ export class AudioEngine {
    * Stop and cleanup
    */
   private stop() {
+    this.isManualStop = true; // Mark as manual stop
+
     if (this.sourceNode) {
       this.sourceNode.stop();
       this.sourceNode.disconnect();

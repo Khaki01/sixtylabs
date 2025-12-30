@@ -158,6 +158,16 @@ export default function WaveformVisualizer({
       ctx.lineTo(clipEndX, height);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // Draw clip number at top center
+      const clipCenterX = (clipStartX + clipEndX) / 2;
+      const clipNumber = (index + 1).toString();
+
+      ctx.font = "bold 14px monospace";
+      ctx.fillStyle = foregroundColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(clipNumber, clipCenterX, 4);
     });
 
     if (

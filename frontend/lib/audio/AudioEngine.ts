@@ -467,6 +467,10 @@ export class AudioEngine {
         // Audio finished naturally - reset pauseTime to start
         this.pauseTime = 0;
         this.stop();
+        this.isPlaying = false;
+        if (this.onPlayStateChange) {
+          this.onPlayStateChange(false);
+        }
         if (this.onEnd) {
           this.onEnd();
         }

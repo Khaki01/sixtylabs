@@ -164,7 +164,8 @@ export class AudioEngine {
     }
 
     let bufferStartOffset = this.pauseTime;
-    let playDuration = bufferToPlay.duration;
+    // playDuration should be remaining time from current position
+    let playDuration = bufferToPlay.duration - bufferStartOffset;
 
     // Handle clip playback - use visual times for consistent behavior
     if (clip) {
@@ -463,6 +464,8 @@ export class AudioEngine {
         }
         return;
       } else {
+        // Audio finished naturally - reset pauseTime to start
+        this.pauseTime = 0;
         this.stop();
         if (this.onEnd) {
           this.onEnd();
@@ -496,6 +499,8 @@ export class AudioEngine {
     }
 
     if (this.sourceNode) {
+      // Remove onended handler BEFORE stopping to prevent it from firing
+      this.sourceNode.onended = null;
       this.sourceNode.stop();
       this.sourceNode.disconnect();
     }
@@ -524,6 +529,9 @@ export class AudioEngine {
     this.isManualStop = true; // Mark as manual stop
 
     if (this.sourceNode) {
+      // Remove onended handler BEFORE stopping to prevent it from firing
+      // and overwriting state when we start a new playback
+      this.sourceNode.onended = null;
       this.sourceNode.stop();
       this.sourceNode.disconnect();
       this.sourceNode = null;
@@ -564,6 +572,8 @@ export class AudioEngine {
     const wasPlaying = this.isPlaying;
 
     if (this.sourceNode) {
+      // Remove onended handler BEFORE stopping to prevent state issues
+      this.sourceNode.onended = null;
       this.sourceNode.stop();
       this.sourceNode.disconnect();
     }

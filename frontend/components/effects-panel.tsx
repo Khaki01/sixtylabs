@@ -59,42 +59,43 @@ export default function EffectsPanel({
   );
 
   return (
-    <div className="space-y-6">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            className="w-full font-mono uppercase tracking-wider bg-transparent border-2"
-            disabled={availableEffects.length === 0}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add effect
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] font-mono">
-          {availableEffects.length === 0 ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">
-              No effects available
-            </div>
-          ) : (
-            availableEffects.map((effect) => (
-              <DropdownMenuItem
-                key={effect.id}
-                onClick={() => addEffect(effect.id)}
-                className="uppercase tracking-wider text-xs cursor-pointer py-3 px-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="bg-foreground text-background px-2 py-1 font-mono text-sm font-medium border-2 border-foreground">
-                    {effect.number}
+    <div className="space-y-6 relative">
+      <div className="sticky top-0 z-20 bg-background pb-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="w-full font-mono uppercase tracking-wider bg-transparent border-2"
+              disabled={availableEffects.length === 0}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add effect
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] font-mono">
+            {availableEffects.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                No effects available
+              </div>
+            ) : (
+              availableEffects.map((effect) => (
+                <DropdownMenuItem
+                  key={effect.id}
+                  onClick={() => addEffect(effect.id)}
+                  className="uppercase tracking-wider text-xs cursor-pointer py-3 px-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="bg-foreground text-background px-2 py-1 font-mono text-sm font-medium border-2 border-foreground">
+                      {effect.number}
+                    </div>
+                    <span className="font-semibold">{effect.name}</span>
                   </div>
-                  <span className="font-semibold">{effect.name}</span>
-                </div>
-              </DropdownMenuItem>
-            ))
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       {/* Pitch & Time - Always visible */}
       <div className="border-2 border-foreground bg-muted/30 p-4 space-y-3 rounded-lg">
         <div className="flex items-center gap-3 pb-2">

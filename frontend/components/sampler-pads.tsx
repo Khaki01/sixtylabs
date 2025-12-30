@@ -112,7 +112,7 @@ export default function SamplerPads({
       </div>
 
       {/* 8x2 Pad Grid */}
-      <div className="grid grid-cols-8 gap-2">
+      <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
         {pads.map((pad) => {
           const display = getPadDisplay(pad);
           const isActive = pad.clipId !== null;

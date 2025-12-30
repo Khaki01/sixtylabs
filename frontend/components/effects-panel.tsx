@@ -261,9 +261,7 @@ export default function EffectsPanel({
           <EffectSlider
             label="Rate"
             value={effects.tremoloRate}
-            onChange={(value) =>
-              setEffects({ ...effects, tremoloRate: value })
-            }
+            onChange={(value) => setEffects({ ...effects, tremoloRate: value })}
             min={0.1}
             max={20}
             step={0.1}
@@ -285,9 +283,7 @@ export default function EffectsPanel({
           <EffectSlider
             label="Mix"
             value={effects.tremoloMix}
-            onChange={(value) =>
-              setEffects({ ...effects, tremoloMix: value })
-            }
+            onChange={(value) => setEffects({ ...effects, tremoloMix: value })}
             min={0}
             max={1}
             step={0.01}
@@ -334,9 +330,7 @@ export default function EffectsPanel({
           <EffectSlider
             label="Mix"
             value={effects.bitcrushMix}
-            onChange={(value) =>
-              setEffects({ ...effects, bitcrushMix: value })
-            }
+            onChange={(value) => setEffects({ ...effects, bitcrushMix: value })}
             min={0}
             max={1}
             step={0.01}
@@ -383,9 +377,7 @@ export default function EffectsPanel({
           <EffectSlider
             label="Mix"
             value={effects.granularMix}
-            onChange={(value) =>
-              setEffects({ ...effects, granularMix: value })
-            }
+            onChange={(value) => setEffects({ ...effects, granularMix: value })}
             min={0}
             max={1}
             step={0.01}
@@ -420,9 +412,7 @@ export default function EffectsPanel({
           <EffectSlider
             label="Static"
             value={effects.radioStatic}
-            onChange={(value) =>
-              setEffects({ ...effects, radioStatic: value })
-            }
+            onChange={(value) => setEffects({ ...effects, radioStatic: value })}
             min={0}
             max={1}
             step={0.01}
@@ -455,9 +445,7 @@ export default function EffectsPanel({
           <EffectSlider
             label="Wobble"
             value={effects.drunkWobble}
-            onChange={(value) =>
-              setEffects({ ...effects, drunkWobble: value })
-            }
+            onChange={(value) => setEffects({ ...effects, drunkWobble: value })}
             min={0.1}
             max={2}
             step={0.01}
@@ -555,7 +543,7 @@ export default function EffectsPanel({
             value={effects.repeat}
             onChange={(value) => setEffects({ ...effects, repeat: value })}
             min={1}
-            max={8}
+            max={6}
             step={0.1}
             format={(v) => `${v.toFixed(1)}x`}
             disabled={!isEffectEnabled("repeat")}
@@ -566,7 +554,7 @@ export default function EffectsPanel({
             onChange={(value) =>
               setEffects({ ...effects, repeatCycleSize: value })
             }
-            min={10}
+            min={50}
             max={500}
             step={10}
             format={(v) => `${v}ms`}

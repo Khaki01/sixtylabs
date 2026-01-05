@@ -124,7 +124,7 @@ export default function SamplerPads({
               <Button
                 variant="outline"
                 className={`
-                  relative h-20 w-full font-mono border-2 transition-all
+                  relative h-20 w-full font-mono border-2 transition-all focus-visible:ring-0
                   ${
                     isPlaying
                       ? "border-white shadow-[0_0_0_2px_white] animate-pulse"

@@ -129,6 +129,7 @@ export default function AudioManipulator() {
   const samplerEngineRef = useRef<SamplerEngine | null>(null);
   const sequencerEngineRef = useRef<SequencerEngine | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const padPlayingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Refs to access latest state in callbacks
   const samplerStateRef = useRef(samplerState);
@@ -461,6 +462,12 @@ export default function AudioManipulator() {
     audioEngineRef.current.seek(seekTime, effects, clip);
     audioEngineRef.current.play(effects, clip);
 
+    // Clear any existing pad playing timeout to prevent race conditions
+    if (padPlayingTimeoutRef.current) {
+      clearTimeout(padPlayingTimeoutRef.current);
+      padPlayingTimeoutRef.current = null;
+    }
+
     // Update pad playing state - clear all others, set clicked one as playing
     setSamplerState((prev) => ({
       ...prev,
@@ -473,13 +480,14 @@ export default function AudioManipulator() {
     const clipDuration =
       (clip.visualEndTime - clip.visualStartTime) /
       (effects.pitchEnabled ? effects.pitch : 1);
-    setTimeout(() => {
+    padPlayingTimeoutRef.current = setTimeout(() => {
       setSamplerState((prev) => ({
         ...prev,
         pads: prev.pads.map((p, i) =>
           i === padId ? { ...p, isPlaying: false } : p
         ),
       }));
+      padPlayingTimeoutRef.current = null;
     }, clipDuration * 1000);
   };
 
@@ -818,10 +826,18 @@ export default function AudioManipulator() {
                         }
                       }
 
-                      // No auto-assignment, just update clips
+                      // Get valid clip IDs from the new clips array
+                      const validClipIds = new Set(newClips.map((c) => c.id));
+
+                      // Update clips and clean up pad assignments for deleted clips
                       setSamplerState((prev) => ({
                         ...prev,
                         clips: newClips,
+                        pads: prev.pads.map((p) =>
+                          p.clipId && !validClipIds.has(p.clipId)
+                            ? { ...p, clipId: null }
+                            : p
+                        ),
                       }));
                     }}
                     pauseAudio={() => audioEngineRef.current?.pause()}

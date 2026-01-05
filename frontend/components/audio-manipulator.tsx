@@ -253,6 +253,9 @@ export default function AudioManipulator() {
     }
   }, [
     effects.volume,
+    effects.delayTime,
+    effects.delayFeedback,
+    effects.delayMix,
     effects.reverbMix,
     effects.reverbRoomSize,
     effects.reverbDecay,

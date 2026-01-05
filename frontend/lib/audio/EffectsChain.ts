@@ -309,6 +309,31 @@ export class EffectsChain {
         .get("speed")
         ?.setValueAtTime(effects.drunkSpeed, currentTime);
     }
+
+    // Update delay
+    if (this.delayNode && this.delayFeedbackGain && this.delayWetGain) {
+      const currentDelayTime = this.delayNode.delayTime.value;
+      const newDelayTime = effects.delayTime;
+
+      // If delay time is changing, briefly mute to hide the discontinuity
+      if (Math.abs(currentDelayTime - newDelayTime) > 0.001) {
+        // Quick fade out
+        this.delayWetGain.gain.setTargetAtTime(0, currentTime, 0.01);
+        // Change delay time after fade out
+        this.delayNode.delayTime.setValueAtTime(newDelayTime, currentTime + 0.03);
+        // Fade back in to target mix
+        this.delayWetGain.gain.setTargetAtTime(effects.delayMix, currentTime + 0.05, 0.02);
+      } else {
+        // No delay time change, just update mix normally
+        this.delayWetGain.gain.setTargetAtTime(effects.delayMix, currentTime, 0.01);
+      }
+
+      this.delayFeedbackGain.gain.setTargetAtTime(
+        effects.delayFeedback,
+        currentTime,
+        0.01
+      );
+    }
   }
 
   /**
@@ -319,6 +344,20 @@ export class EffectsChain {
     feedback: number,
     mix: number
   ): { delay: DelayNode; feedbackGain: GainNode; wetGain: GainNode } {
+    // Clean up old delay nodes if they exist
+    if (this.delayNode) {
+      this.delayNode.disconnect();
+      this.delayNode = null;
+    }
+    if (this.delayFeedbackGain) {
+      this.delayFeedbackGain.disconnect();
+      this.delayFeedbackGain = null;
+    }
+    if (this.delayWetGain) {
+      this.delayWetGain.disconnect();
+      this.delayWetGain = null;
+    }
+
     const delay = this.ctx.createDelay(2);
     const feedbackGain = this.ctx.createGain();
     const wetGain = this.ctx.createGain();
@@ -330,6 +369,11 @@ export class EffectsChain {
     delay.connect(feedbackGain);
     feedbackGain.connect(delay);
     delay.connect(wetGain);
+
+    // Store references for real-time updates
+    this.delayNode = delay;
+    this.delayFeedbackGain = feedbackGain;
+    this.delayWetGain = wetGain;
 
     return { delay, feedbackGain, wetGain };
   }
@@ -538,5 +582,8 @@ export class EffectsChain {
     this.radioWetGain.disconnect();
     this.drunkProcessor?.disconnect();
     this.drunkWetGain.disconnect();
+    this.delayNode?.disconnect();
+    this.delayFeedbackGain?.disconnect();
+    this.delayWetGain?.disconnect();
   }
 }

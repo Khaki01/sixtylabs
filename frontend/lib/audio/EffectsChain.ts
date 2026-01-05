@@ -16,13 +16,12 @@ export class EffectsChain {
   public delayFeedbackGain: GainNode | null = null;
   public delayWetGain: GainNode | null = null;
 
-  // Reverb effect nodes
+  // Reverb effect nodes (convolution-based)
   public reverbNode: {
     input: GainNode;
     output: GainNode;
-    delays: DelayNode[];
-    gains: GainNode[];
-    filters: BiquadFilterNode[];
+    convolver: ConvolverNode;
+    filter: BiquadFilterNode;
   } | null = null;
   public reverbWetGain: GainNode;
 
@@ -190,33 +189,14 @@ export class EffectsChain {
       0.01
     );
 
-    // Update reverb
+    // Update reverb (convolution-based - only wet mix can be updated in real-time)
+    // Room size and decay require regenerating the impulse response (handled by recreateReverb)
     if (this.reverbNode) {
       this.reverbWetGain.gain.setTargetAtTime(
         effects.reverbMix,
         currentTime,
         0.01
       );
-      const baseTimes = [
-        0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
-      ];
-      this.reverbNode.delays.forEach((delay, i) => {
-        delay.delayTime.setTargetAtTime(
-          baseTimes[i] * (1 + effects.reverbRoomSize * 3),
-          currentTime,
-          0.1
-        );
-        this.reverbNode!.gains[i].gain.setTargetAtTime(
-          effects.reverbDecay * 0.65,
-          currentTime,
-          0.1
-        );
-        this.reverbNode!.filters[i].frequency.setTargetAtTime(
-          3000 - effects.reverbDecay * 1500,
-          currentTime,
-          0.1
-        );
-      });
     }
 
     // Update convolver
@@ -379,56 +359,71 @@ export class EffectsChain {
   }
 
   /**
-   * Create reverb effect
+   * Recreate reverb with new parameters (room size and decay)
+   * Must be called when those parameters change since convolution reverb
+   * requires regenerating the impulse response
+   */
+  public recreateReverb(roomSize: number, decay: number) {
+    // Disconnect old reverb if exists
+    if (this.reverbNode) {
+      this.reverbNode.input.disconnect();
+      this.reverbNode.output.disconnect();
+      this.reverbNode.convolver.disconnect();
+      this.reverbNode.filter.disconnect();
+    }
+
+    // Create new reverb with updated parameters
+    this.reverbNode = this.createReverb(roomSize, decay);
+
+    // Reconnect to wet gain
+    this.reverbNode.output.connect(this.reverbWetGain);
+  }
+
+  /**
+   * Create reverb effect (convolution-based)
+   * Uses a generated impulse response with white noise and exponential decay
    */
   private createReverb(roomSize: number, decay: number) {
-    const delays = Array.from({ length: 8 }, () => this.ctx.createDelay(5.0));
-    const gains = Array.from({ length: 8 }, () => this.ctx.createGain());
-    const filters = Array.from({ length: 8 }, () =>
-      this.ctx.createBiquadFilter()
-    );
+    const convolver = this.ctx.createConvolver();
 
-    const baseTimes = [
-      0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823,
-    ];
+    // Calculate duration based on room size (approx 1s to 4s)
+    const duration = 1 + roomSize * 3;
+    // decay 1 -> factor 1 (slow fade), decay 0 -> factor 5 (fast fade)
+    const decayFactor = 1 + (1 - decay) * 4;
 
-    delays.forEach((delay, i) => {
-      delay.delayTime.value = baseTimes[i] * (1 + roomSize * 3);
-      gains[i].gain.value = decay * 0.65;
-      filters[i].type = "lowpass";
-      filters[i].frequency.value = 3000 - decay * 1500;
-      filters[i].Q.value = 0.5;
-    });
+    const rate = this.ctx.sampleRate;
+    const length = Math.floor(rate * duration);
+    const impulse = this.ctx.createBuffer(2, length, rate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+
+    for (let i = 0; i < length; i++) {
+      // Create a smooth exponential decay curve
+      const n = i / length;
+      // Apply a slight fade-in (0.01s) to avoid clicks, then exponential decay
+      const fadeIn = i < rate * 0.01 ? i / (rate * 0.01) : 1;
+      const volume = fadeIn * Math.pow(1 - n, decayFactor);
+
+      // Generate white noise
+      left[i] = (Math.random() * 2 - 1) * volume;
+      right[i] = (Math.random() * 2 - 1) * volume;
+    }
+
+    convolver.buffer = impulse;
 
     const input = this.ctx.createGain();
     const output = this.ctx.createGain();
-    const diffusion = this.ctx.createGain();
-    diffusion.gain.value = 0.7;
 
-    const compressor = this.ctx.createDynamicsCompressor();
-    compressor.threshold.value = -20;
-    compressor.knee.value = 30;
-    compressor.ratio.value = 12;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
+    // Add a low-pass filter to simulate air absorption in a hall (warmer, "soft" sound)
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 5000; // Cut harsh high frequencies
 
-    const preCompressorGain = this.ctx.createGain();
-    preCompressorGain.gain.value = 0.4;
+    input.connect(convolver);
+    convolver.connect(filter);
+    filter.connect(output);
 
-    delays.forEach((delay, i) => {
-      input.connect(delay);
-      delay.connect(filters[i]);
-      filters[i].connect(gains[i]);
-      gains[i].connect(preCompressorGain);
-      gains[i].connect(delays[(i + 1) % delays.length]);
-      gains[i].connect(diffusion);
-    });
-
-    diffusion.connect(preCompressorGain);
-    preCompressorGain.connect(compressor);
-    compressor.connect(output);
-
-    return { input, output, delays, gains, filters };
+    return { input, output, convolver, filter };
   }
 
   /**
@@ -569,7 +564,12 @@ export class EffectsChain {
     this.granularGain.disconnect();
     this.convolverNode?.disconnect();
     this.convolverWetGain.disconnect();
-    this.reverbNode?.output.disconnect();
+    if (this.reverbNode) {
+      this.reverbNode.input.disconnect();
+      this.reverbNode.output.disconnect();
+      this.reverbNode.convolver.disconnect();
+      this.reverbNode.filter.disconnect();
+    }
     this.reverbWetGain.disconnect();
     this.tremoloNode?.lfo.stop();
     this.tremoloNode?.amplitude.disconnect();

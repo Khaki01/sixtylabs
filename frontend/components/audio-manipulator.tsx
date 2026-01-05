@@ -257,8 +257,6 @@ export default function AudioManipulator() {
     effects.delayFeedback,
     effects.delayMix,
     effects.reverbMix,
-    effects.reverbRoomSize,
-    effects.reverbDecay,
     effects.granularMix,
     effects.tremoloMix,
     effects.tremoloRate,
@@ -278,6 +276,21 @@ export default function AudioManipulator() {
     effects.drunkWobble,
     effects.drunkSpeed,
   ]);
+
+  // Handle reverb room size and decay changes - requires recreating the impulse response
+  useEffect(() => {
+    if (audioEngineRef.current) {
+      audioEngineRef.current
+        .getEffectsChain()
+        .recreateReverb(effects.reverbRoomSize, effects.reverbDecay);
+
+      // Restart playback if currently playing to apply new reverb
+      if (isPlaying) {
+        audioEngineRef.current.pause();
+        audioEngineRef.current.play(effects);
+      }
+    }
+  }, [effects.reverbRoomSize, effects.reverbDecay]);
 
   // Handle effect enabled/disabled changes - restart playback
   useEffect(() => {

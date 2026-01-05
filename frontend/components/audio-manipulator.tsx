@@ -914,6 +914,14 @@ export default function AudioManipulator() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      {/* Warning when in sequencer mode with no clips assigned */}
+                      {samplerState.mode === "sequencer" &&
+                        samplerState.pads.filter((p) => p.clipId !== null)
+                          .length === 0 && (
+                          <div className="font-mono text-xs text-muted-foreground">
+                            No clips to play
+                          </div>
+                        )}
                     </div>
                     <div className="font-mono text-xs uppercase tracking-wider">
                       {formatTime(currentTime)} / {formatTime(duration)}

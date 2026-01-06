@@ -171,7 +171,7 @@ export default function EffectsPanel({
               setEffects({ ...effects, delayFeedback: value })
             }
             min={0}
-            max={0.9}
+            max={1}
             step={0.01}
             format={formatGain}
             disabled={!isEffectEnabled("delay")}

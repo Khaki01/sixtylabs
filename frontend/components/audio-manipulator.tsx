@@ -64,6 +64,7 @@ export default function AudioManipulator() {
   const [isLooping, setIsLooping] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [showNoClipsWarning, setShowNoClipsWarning] = useState(false);
 
   // Sampler state
   const [samplerState, setSamplerState] = useState<SamplerState>({
@@ -407,8 +408,10 @@ export default function AudioManipulator() {
           .filter((pad) => pad.clipId !== null)
           .map((pad) => pad.id);
 
-        if (padsWithClips.length === 0) {
-          console.warn("No pads with clips to sequence");
+        if (padsWithClips.length === 0 && !showNoClipsWarning) {
+          // Show warning tooltip instead of just console warning
+          setShowNoClipsWarning(true);
+          setTimeout(() => setShowNoClipsWarning(false), 2000);
           return;
         }
 
@@ -863,17 +866,26 @@ export default function AudioManipulator() {
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <Button
-                        onClick={togglePlayPause}
-                        size="sm"
-                        className="font-mono uppercase tracking-wider"
-                      >
-                        {isPlaying ? (
-                          <Pause className="w-4 h-4" />
-                        ) : (
-                          <Play className="w-4 h-4" />
+                      <div className="relative">
+                        <Button
+                          onClick={togglePlayPause}
+                          size="sm"
+                          className="font-mono uppercase tracking-wider"
+                        >
+                          {isPlaying ? (
+                            <Pause className="w-4 h-4" />
+                          ) : (
+                            <Play className="w-4 h-4" />
+                          )}
+                        </Button>
+                        {/* Warning tooltip when no clips to play in sequencer mode */}
+                        {showNoClipsWarning && (
+                          <div className="absolute bottom-full left-0 mb-2 px-3 py-1.5 bg-warning text-warning-foreground text-xs font-mono rounded whitespace-nowrap shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                            No clips to play
+                            <div className="absolute top-full left-3 border-4 border-transparent border-t-warning" />
+                          </div>
                         )}
-                      </Button>
+                      </div>
                       <Button
                         onClick={resetAudio}
                         variant="outline"
@@ -914,14 +926,6 @@ export default function AudioManipulator() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                      {/* Warning when in sequencer mode with no clips assigned */}
-                      {samplerState.mode === "sequencer" &&
-                        samplerState.pads.filter((p) => p.clipId !== null)
-                          .length === 0 && (
-                          <div className="font-mono text-xs text-muted-foreground">
-                            No clips to play
-                          </div>
-                        )}
                     </div>
                     <div className="font-mono text-xs uppercase tracking-wider">
                       {formatTime(currentTime)} / {formatTime(duration)}

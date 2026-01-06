@@ -377,7 +377,9 @@ export class AudioEngine {
 
       const grainSource = this.ctx.createBufferSource();
       grainSource.buffer = bufferToPlay;
-      grainSource.playbackRate.value = effects.granularPitch;
+      // Apply both granular pitch and main pitch (if enabled) so they work together
+      const mainPitch = effects.pitchEnabled ? effects.pitch : 1;
+      grainSource.playbackRate.value = effects.granularPitch * mainPitch;
 
       const grainGain = this.ctx.createGain();
 

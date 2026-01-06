@@ -762,6 +762,384 @@ export class AudioEngine {
   }
 
   /**
+   * Render audio with all effects applied for export/download
+   * Handles pitch (adjusts duration), reverse, delay, reverb, tremolo, EQ, etc.
+   */
+  public async renderWithEffects(
+    effects: EffectsState,
+    startTime?: number,
+    endTime?: number
+  ): Promise<AudioBuffer> {
+    if (!this.audioBuffer) {
+      throw new Error("No audio buffer loaded");
+    }
+
+    let bufferToRender = this.audioBuffer;
+    const sampleRate = bufferToRender.sampleRate;
+
+    // Apply reverse first (before other processing)
+    if (effects.reverse) {
+      bufferToRender = this.reverseBuffer(bufferToRender);
+    }
+
+    // Apply repeat effect
+    if (effects.repeatEnabled && effects.repeat > 1) {
+      bufferToRender = this.applyRepeatEffectForExport(
+        bufferToRender,
+        effects.repeat,
+        effects.repeatCycleSize
+      );
+    }
+
+    // Handle clip extraction if start/end times provided
+    if (startTime !== undefined && endTime !== undefined) {
+      const startSample = Math.floor(startTime * sampleRate);
+      const endSample = Math.floor(endTime * sampleRate);
+      const clipLength = endSample - startSample;
+
+      const clipBuffer = new OfflineAudioContext(
+        bufferToRender.numberOfChannels,
+        clipLength,
+        sampleRate
+      ).createBuffer(bufferToRender.numberOfChannels, clipLength, sampleRate);
+
+      for (let ch = 0; ch < bufferToRender.numberOfChannels; ch++) {
+        const sourceData = bufferToRender.getChannelData(ch);
+        const destData = clipBuffer.getChannelData(ch);
+        for (let i = 0; i < clipLength; i++) {
+          destData[i] = sourceData[startSample + i] || 0;
+        }
+      }
+      bufferToRender = clipBuffer;
+    }
+
+    // Calculate output duration based on pitch
+    const pitch = effects.pitchEnabled ? effects.pitch : 1;
+    const inputDuration = bufferToRender.duration;
+    const outputDuration = inputDuration / pitch;
+
+    // Add extra time for delay/reverb tails
+    const tailTime = effects.delayEnabled
+      ? effects.delayTime * 3
+      : effects.reverbEnabled
+        ? 2
+        : 0;
+    const totalDuration = outputDuration + tailTime;
+    const outputLength = Math.ceil(totalDuration * sampleRate);
+
+    // Create offline context
+    const offlineCtx = new OfflineAudioContext(
+      bufferToRender.numberOfChannels,
+      outputLength,
+      sampleRate
+    );
+
+    // Create source
+    const source = offlineCtx.createBufferSource();
+    source.buffer = bufferToRender;
+    source.playbackRate.value = pitch;
+
+    // Create master gain (volume)
+    const masterGain = offlineCtx.createGain();
+    masterGain.gain.value = effects.volume;
+    masterGain.connect(offlineCtx.destination);
+
+    // Calculate dry/wet balance
+    const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
+    const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
+    const activeConvolverMix = effects.convolverEnabled ? effects.convolverMix : 0;
+    const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
+    const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
+
+    const maxWetMix = Math.max(
+      activeDelayMix,
+      activeReverbMix,
+      activeConvolverMix,
+      activeTremoloMix
+    );
+
+    // Dry path
+    const dryGain = offlineCtx.createGain();
+    let dryLevel = 1 - maxWetMix * 0.5;
+    if (effects.eqEnabled) {
+      dryLevel *= 1 - activeEqMix;
+    }
+    dryGain.gain.value = dryLevel;
+    dryGain.connect(masterGain);
+
+    // Connect source to dry path
+    source.connect(dryGain);
+
+    // Delay effect
+    if (effects.delayEnabled) {
+      const delay = offlineCtx.createDelay(2);
+      delay.delayTime.value = effects.delayTime;
+
+      const feedbackGain = offlineCtx.createGain();
+      feedbackGain.gain.value = effects.delayFeedback;
+
+      const delayWetGain = offlineCtx.createGain();
+      delayWetGain.gain.value = effects.delayMix;
+
+      delay.connect(feedbackGain);
+      feedbackGain.connect(delay);
+      delay.connect(delayWetGain);
+      delayWetGain.connect(masterGain);
+
+      source.connect(delay);
+    }
+
+    // Reverb effect (convolution-based)
+    if (effects.reverbEnabled) {
+      const convolver = offlineCtx.createConvolver();
+
+      // Generate impulse response
+      const duration = 1 + effects.reverbRoomSize * 3;
+      const decayFactor = 1 + (1 - effects.reverbDecay) * 4;
+      const irLength = Math.floor(sampleRate * duration);
+      const impulse = offlineCtx.createBuffer(2, irLength, sampleRate);
+
+      for (let ch = 0; ch < 2; ch++) {
+        const data = impulse.getChannelData(ch);
+        for (let i = 0; i < irLength; i++) {
+          const n = i / irLength;
+          const fadeIn = i < sampleRate * 0.01 ? i / (sampleRate * 0.01) : 1;
+          const envelope = fadeIn * Math.pow(1 - n, decayFactor);
+          data[i] = (Math.random() * 2 - 1) * envelope;
+        }
+      }
+      convolver.buffer = impulse;
+
+      const reverbFilter = offlineCtx.createBiquadFilter();
+      reverbFilter.type = "lowpass";
+      reverbFilter.frequency.value = 5000;
+
+      const reverbWetGain = offlineCtx.createGain();
+      reverbWetGain.gain.value = effects.reverbMix;
+
+      convolver.connect(reverbFilter);
+      reverbFilter.connect(reverbWetGain);
+      reverbWetGain.connect(masterGain);
+
+      source.connect(convolver);
+    }
+
+    // Convolver effect
+    if (effects.convolverEnabled) {
+      const convolver = offlineCtx.createConvolver();
+
+      // Create impulse response similar to the live one
+      const irDuration = 15;
+      const irDecay = 2.5;
+      const irLength = Math.floor(sampleRate * irDuration);
+      const impulse = offlineCtx.createBuffer(2, irLength, sampleRate);
+
+      let lastOutL = 0;
+      let lastOutR = 0;
+      const filterCoef = 0.05;
+
+      for (let ch = 0; ch < 2; ch++) {
+        const data = impulse.getChannelData(ch);
+        let lastOut = 0;
+        for (let i = 0; i < irLength; i++) {
+          const rawNoise = Math.random() * 2 - 1;
+          lastOut = lastOut + (rawNoise - lastOut) * filterCoef;
+
+          const fadeInDuration = sampleRate * 2.5;
+          const fadeIn = i < fadeInDuration ? Math.pow(i / fadeInDuration, 2) : 1;
+          const envelope = Math.pow(1 - i / irLength, irDecay) * fadeIn;
+
+          data[i] = lastOut * envelope;
+        }
+      }
+      convolver.buffer = impulse;
+
+      const convolverWetGain = offlineCtx.createGain();
+      convolverWetGain.gain.value = effects.convolverMix;
+      convolver.connect(convolverWetGain);
+      convolverWetGain.connect(masterGain);
+
+      source.connect(convolver);
+    }
+
+    // Tremolo effect
+    if (effects.tremoloEnabled) {
+      const lfo = offlineCtx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = effects.tremoloRate;
+
+      const depthGain = offlineCtx.createGain();
+      depthGain.gain.value = effects.tremoloDepth;
+
+      const tremoloGain = offlineCtx.createGain();
+      tremoloGain.gain.value = 1.0 - effects.tremoloDepth * 0.5;
+
+      const tremoloWetGain = offlineCtx.createGain();
+      tremoloWetGain.gain.value = effects.tremoloMix;
+
+      lfo.connect(depthGain);
+      depthGain.connect(tremoloGain.gain);
+      source.connect(tremoloGain);
+      tremoloGain.connect(tremoloWetGain);
+      tremoloWetGain.connect(masterGain);
+
+      lfo.start(0);
+    }
+
+    // EQ effect
+    if (effects.eqEnabled) {
+      const LOW_CROSSOVER = 200;
+      const HIGH_CROSSOVER = 3000;
+
+      // Low band
+      const lowLP = offlineCtx.createBiquadFilter();
+      lowLP.type = "lowpass";
+      lowLP.frequency.value = LOW_CROSSOVER;
+      lowLP.Q.value = 0.707;
+
+      const lowGain = offlineCtx.createGain();
+      lowGain.gain.value = effects.eqLowGain;
+
+      // Mid band
+      const midHP = offlineCtx.createBiquadFilter();
+      midHP.type = "highpass";
+      midHP.frequency.value = LOW_CROSSOVER;
+      midHP.Q.value = 0.707;
+
+      const midLP = offlineCtx.createBiquadFilter();
+      midLP.type = "lowpass";
+      midLP.frequency.value = HIGH_CROSSOVER;
+      midLP.Q.value = 0.707;
+
+      const midGain = offlineCtx.createGain();
+      midGain.gain.value = effects.eqMidGain;
+
+      // High band
+      const highHP = offlineCtx.createBiquadFilter();
+      highHP.type = "highpass";
+      highHP.frequency.value = HIGH_CROSSOVER;
+      highHP.Q.value = 0.707;
+
+      const highGain = offlineCtx.createGain();
+      highGain.gain.value = effects.eqHighGain;
+
+      // EQ output
+      const eqOutput = offlineCtx.createGain();
+      const eqWetGain = offlineCtx.createGain();
+      eqWetGain.gain.value = effects.eqMix;
+
+      // Connect EQ bands
+      source.connect(lowLP);
+      lowLP.connect(lowGain);
+      lowGain.connect(eqOutput);
+
+      source.connect(midHP);
+      midHP.connect(midLP);
+      midLP.connect(midGain);
+      midGain.connect(eqOutput);
+
+      source.connect(highHP);
+      highHP.connect(highGain);
+      highGain.connect(eqOutput);
+
+      eqOutput.connect(eqWetGain);
+      eqWetGain.connect(masterGain);
+    }
+
+    // Start source and render
+    source.start(0);
+    const renderedBuffer = await offlineCtx.startRendering();
+
+    // Trim silence from end if there's a tail
+    if (tailTime > 0) {
+      return this.trimSilence(renderedBuffer, outputDuration);
+    }
+
+    return renderedBuffer;
+  }
+
+  /**
+   * Render a clip with effects
+   */
+  public async renderClipWithEffects(
+    clip: { startTime: number; endTime: number },
+    effects: EffectsState
+  ): Promise<AudioBuffer> {
+    return this.renderWithEffects(effects, clip.startTime, clip.endTime);
+  }
+
+  /**
+   * Render multiple clips merged in order
+   */
+  public async renderMergedClips(
+    clips: Array<{ startTime: number; endTime: number }>,
+    effects: EffectsState
+  ): Promise<AudioBuffer> {
+    if (clips.length === 0) {
+      throw new Error("No clips to render");
+    }
+
+    // Render each clip
+    const renderedClips: AudioBuffer[] = [];
+    for (const clip of clips) {
+      const rendered = await this.renderClipWithEffects(clip, effects);
+      renderedClips.push(rendered);
+    }
+
+    // Calculate total length
+    const sampleRate = renderedClips[0].sampleRate;
+    const numChannels = renderedClips[0].numberOfChannels;
+    const totalLength = renderedClips.reduce((sum, buf) => sum + buf.length, 0);
+
+    // Create merged buffer
+    const mergedBuffer = new OfflineAudioContext(
+      numChannels,
+      totalLength,
+      sampleRate
+    ).createBuffer(numChannels, totalLength, sampleRate);
+
+    // Copy clips into merged buffer
+    let offset = 0;
+    for (const clip of renderedClips) {
+      for (let ch = 0; ch < numChannels; ch++) {
+        const sourceData = clip.getChannelData(ch);
+        const destData = mergedBuffer.getChannelData(ch);
+        for (let i = 0; i < clip.length; i++) {
+          destData[offset + i] = sourceData[i];
+        }
+      }
+      offset += clip.length;
+    }
+
+    return mergedBuffer;
+  }
+
+  /**
+   * Trim silence from the end of a buffer
+   */
+  private trimSilence(buffer: AudioBuffer, targetDuration: number): AudioBuffer {
+    const sampleRate = buffer.sampleRate;
+    const targetLength = Math.ceil(targetDuration * sampleRate);
+    const actualLength = Math.min(targetLength, buffer.length);
+
+    const trimmedBuffer = new OfflineAudioContext(
+      buffer.numberOfChannels,
+      actualLength,
+      sampleRate
+    ).createBuffer(buffer.numberOfChannels, actualLength, sampleRate);
+
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      const sourceData = buffer.getChannelData(ch);
+      const destData = trimmedBuffer.getChannelData(ch);
+      for (let i = 0; i < actualLength; i++) {
+        destData[i] = sourceData[i];
+      }
+    }
+
+    return trimmedBuffer;
+  }
+
+  /**
    * Cleanup
    */
   public dispose() {

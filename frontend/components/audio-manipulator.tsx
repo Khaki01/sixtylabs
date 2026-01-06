@@ -27,6 +27,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useAudioStore } from "@/lib/stores/audio-store";
 
@@ -486,85 +487,96 @@ export default function AudioManipulator() {
     });
   };
 
-  const downloadProcessedAudio = async () => {
+  const downloadBuffer = (buffer: AudioBuffer, filename: string) => {
+    const wavBlob = audioBufferToWav(buffer);
+    const url = URL.createObjectURL(wavBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadFullAudio = async () => {
     const audioEngine = getAudioEngine();
     if (!audioEngine) return;
-    let bufferToRender = audioEngine.getBuffer();
-    if (!bufferToRender) return;
 
     setIsRendering(true);
 
     try {
-      if (effects.reverse) {
-        bufferToRender = audioEngine.reverseBufferForExport(bufferToRender);
-      }
-
-      if (effects.repeatEnabled && effects.repeat > 1) {
-        bufferToRender = audioEngine.applyRepeatEffectForExport(
-          bufferToRender,
-          effects.repeat,
-          effects.repeatCycleSize
-        );
-      }
-
-      const offlineCtx = new OfflineAudioContext(
-        bufferToRender.numberOfChannels,
-        bufferToRender.length,
-        bufferToRender.sampleRate
-      );
-
-      const source = offlineCtx.createBufferSource();
-      source.buffer = bufferToRender;
-      source.playbackRate.value = effects.pitch;
-
-      const dryGain = offlineCtx.createGain();
-      const activeDelayMix = effects.delayEnabled ? effects.delayMix : 0;
-      const activeReverbMix = effects.reverbEnabled ? effects.reverbMix : 0;
-      const activeBitcrushMix = effects.bitcrushEnabled
-        ? effects.bitcrushMix
-        : 0;
-      const activeRadioMix = effects.radioEnabled ? effects.radioMix : 0;
-      const activeConvolverMix = effects.convolverEnabled
-        ? effects.convolverMix
-        : 0;
-      const activeTremoloMix = effects.tremoloEnabled ? effects.tremoloMix : 0;
-      const activeDrunkMix = effects.drunkEnabled ? effects.drunkMix : 0;
-      const activeEqMix = effects.eqEnabled ? effects.eqMix : 0;
-
-      dryGain.gain.value =
-        1 -
-        Math.max(
-          activeDelayMix,
-          activeReverbMix,
-          activeBitcrushMix,
-          activeRadioMix,
-          activeConvolverMix,
-          activeTremoloMix,
-          activeDrunkMix,
-          activeEqMix
-        ) *
-          0.5;
-
-      source.connect(dryGain);
-      dryGain.connect(offlineCtx.destination);
-
-      source.start(0);
-      const renderedBuffer = await offlineCtx.startRendering();
-
-      const wavBlob = audioBufferToWav(renderedBuffer);
-      const url = URL.createObjectURL(wavBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `fourpage-processed-${Date.now()}.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setIsRendering(false);
+      const renderedBuffer = await audioEngine.renderWithEffects(effects);
+      downloadBuffer(renderedBuffer, `fourpage-full-${Date.now()}.wav`);
     } catch (error) {
       console.error("Error rendering audio:", error);
       alert("Error processing audio for download");
+    } finally {
+      setIsRendering(false);
+    }
+  };
+
+  const downloadAllClipsMerged = async () => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    // Get clips in pad order (only assigned clips)
+    const clipsInOrder = samplerState.pads
+      .filter((pad) => pad.clipId !== null)
+      .map((pad) => samplerState.clips.find((c) => c.id === pad.clipId))
+      .filter((clip): clip is NonNullable<typeof clip> => clip !== undefined)
+      .map((clip) => ({
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+      }));
+
+    if (clipsInOrder.length === 0) {
+      alert("No clips assigned to pads");
+      return;
+    }
+
+    setIsRendering(true);
+
+    try {
+      const renderedBuffer = await audioEngine.renderMergedClips(
+        clipsInOrder,
+        effects
+      );
+      downloadBuffer(renderedBuffer, `fourpage-clips-merged-${Date.now()}.wav`);
+    } catch (error) {
+      console.error("Error rendering clips:", error);
+      alert("Error processing clips for download");
+    } finally {
+      setIsRendering(false);
+    }
+  };
+
+  const downloadSingleClip = async (clipId: string) => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    const clip = samplerState.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    // Find which pad this clip is assigned to
+    const pad = samplerState.pads.find((p) => p.clipId === clipId);
+    const padLabel = pad ? `pad${pad.id + 1}` : "clip";
+
+    setIsRendering(true);
+
+    try {
+      const renderedBuffer = await audioEngine.renderClipWithEffects(
+        { startTime: clip.startTime, endTime: clip.endTime },
+        effects
+      );
+      downloadBuffer(
+        renderedBuffer,
+        `fourpage-${padLabel}-${clip.name || clipId.slice(0, 6)}.wav`
+      );
+    } catch (error) {
+      console.error("Error rendering clip:", error);
+      alert("Error processing clip for download");
+    } finally {
       setIsRendering(false);
     }
   };
@@ -851,11 +863,51 @@ export default function AudioManipulator() {
                             )}
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="font-mono">
-                          <DropdownMenuItem onClick={downloadProcessedAudio}>
+                        <DropdownMenuContent
+                          align="end"
+                          className="font-mono min-w-[180px]"
+                        >
+                          <DropdownMenuItem onClick={downloadFullAudio}>
                             <Download className="w-4 h-4 mr-2" />
                             Full Audio
                           </DropdownMenuItem>
+                          {samplerState.pads.some((p) => p.clipId !== null) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={downloadAllClipsMerged}>
+                                <Download className="w-4 h-4 mr-2" />
+                                All Clips Merged
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <div className="px-2 py-1 text-xs text-muted-foreground uppercase tracking-wider">
+                                Individual Clips
+                              </div>
+                              {samplerState.pads
+                                .filter((pad) => pad.clipId !== null)
+                                .map((pad) => {
+                                  const clip = samplerState.clips.find(
+                                    (c) => c.id === pad.clipId
+                                  );
+                                  return (
+                                    <DropdownMenuItem
+                                      key={pad.id}
+                                      onClick={() =>
+                                        pad.clipId &&
+                                        downloadSingleClip(pad.clipId)
+                                      }
+                                    >
+                                      <Download className="w-4 h-4 mr-2" />
+                                      Pad {pad.id + 1}
+                                      {clip?.name && (
+                                        <span className="ml-1 text-muted-foreground text-xs">
+                                          ({clip.name})
+                                        </span>
+                                      )}
+                                    </DropdownMenuItem>
+                                  );
+                                })}
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

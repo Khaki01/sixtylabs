@@ -4,46 +4,36 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { User, Mail, Calendar, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getCurrentUser } from "@/lib/api";
-import { getToken, removeToken, isAuthenticated } from "@/lib/auth";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, isAuthenticated, isLoading, logout, checkAuth } =
+    useAuthStore();
 
   useEffect(() => {
-    if (!isAuthenticated()) {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
       router.push("/sign-in");
-      return;
     }
+  }, [isLoading, isAuthenticated, router]);
 
-    const fetchUser = async () => {
-      try {
-        const token = getToken();
-        if (token) {
-          const userData = await getCurrentUser(token);
-          setUser(userData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch user:", error);
-        router.push("/sign-in");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchUser();
-  }, [router]);
-
-  const handleSignOut = () => {
-    removeToken();
-    router.push("/");
+  const handleSignOut = async () => {
+    try {
+      await logout();
+      router.push("/");
+    } catch {
+      // Even if logout fails, redirect to home
+      router.push("/");
+    }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <main className="min-h-screen bg-background p-4 md:p-8 flex items-center justify-center">
         <div className="font-mono text-xl">Loading...</div>
@@ -66,7 +56,7 @@ export default function ProfilePage() {
           <Link href="/">
             <Button
               variant="outline"
-              size="text"
+              // size="sm"
               className="font-mono uppercase tracking-wider bg-transparent mb-4"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />

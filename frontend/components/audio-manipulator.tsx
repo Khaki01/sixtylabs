@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { audioBufferToWav } from "@/utils/audioBufferToWav";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -12,32 +12,16 @@ import {
   RotateCcw,
   Download,
   Repeat,
-  Moon,
-  Sun,
-  PlayIcon,
   ChevronDown,
-  Lock,
-  Loader2,
-  Save,
-  LogIn,
+  Menu,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
 import EffectsPanel from "./effects-panel";
-import FeedbackDialog from "./feedback-dialog";
 import SamplerPads from "./sampler-pads";
+import FeedbackDialog from "./feedback-dialog";
 import Link from "next/link";
-import type { Clip } from "./waveform-visualizer";
-import { isAuthenticated } from "@/lib/auth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,915 +29,555 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from "@/components/ui/tooltip";
-
-const SAMPLE_LIBRARY = [
-  { id: 1, name: "Lo-Fi Beat 01", author: "DJ Smooth", genre: "Lo-Fi Hip Hop" },
-  { id: 2, name: "Ambient Pad", author: "Synth Master", genre: "Ambient" },
-  { id: 3, name: "Drum Break", author: "Beat Maker", genre: "Breakbeat" },
-  { id: 4, name: "Jazz Piano Loop", author: "Keys Player", genre: "Jazz" },
-  { id: 5, name: "Bass Line 808", author: "Low End Theory", genre: "Trap" },
-  { id: 6, name: "Vocal Chop", author: "Voice Artist", genre: "Electronic" },
-  { id: 7, name: "Guitar Riff", author: "String Theory", genre: "Rock" },
-  { id: 8, name: "Synth Lead", author: "Analog Dreams", genre: "Synthwave" },
-];
+import { useAudioStore } from "@/lib/stores/audio-store";
 
 export default function AudioManipulator() {
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(
-    null
-  );
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isRendering, setIsRendering] = useState(false);
-  const [isLooping, setIsLooping] = useState(false);
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
-
-  // CHANGED: Added sequencer state
-  const [samplerMode, setSamplerMode] = useState<"sequencer" | "sampler">(
-    "sampler"
-  );
-  const [isPadsPlaying, setIsPadsPlaying] = useState(false);
-  const [currentSequencerStep, setCurrentSequencerStep] = useState(0);
-  const [padAssignments, setPadAssignments] = useState<(number | null)[]>(
-    Array(16).fill(null)
-  );
-
-  const [clips, setClips] = useState<Clip[]>([]);
-
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const pauseTimeRef = useRef<number>(0);
-  const playbackRateRef = useRef<number>(1);
-  const animationFrameRef = useRef<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const delayNodeRef = useRef<DelayNode | null>(null);
-  const delayFeedbackGainRef = useRef<GainNode | null>(null);
-
-  const gainNodeRef = useRef<GainNode | null>(null);
-
-  const [effects, setEffects] = useState({
-    volume: 0.8,
-    pitch: 1,
-    reverse: false,
-    delayTime: 0.3,
-    delayFeedback: 0.3,
-    delayMix: 0.5,
-    reverbRoomSize: 0.5,
-    reverbDecay: 0.5,
-    reverbMix: 0,
-  });
-
-  const isLoopingRef = useRef(false);
-  const isManuallyStoppingRef = useRef(false);
-
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(false);
-  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
 
+  // Global store state
+  const {
+    audioFile,
+    audioBuffer,
+    effects,
+    samplerState,
+    currentTime,
+    duration,
+    isPlaying,
+    isLooping,
+    setAudioFile,
+    setAudioBuffer,
+    setEffects,
+    setSamplerState,
+    setCurrentTime,
+    setDuration,
+    setIsPlaying,
+    setIsLooping,
+    initializeEngines,
+    getAudioEngine,
+    getSamplerEngine,
+    getSequencerEngine,
+    pauseForNavigation,
+  } = useAudioStore();
+
+  // Local UI state (not persisted across navigation)
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isRendering, setIsRendering] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const { isAuthenticated: isSignedIn, checkAuth } = useAuthStore();
+  const [showNoClipsWarning, setShowNoClipsWarning] = useState(false);
+
+  // Refs
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const padPlayingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Refs to access latest state in callbacks
+  const samplerStateRef = useRef(samplerState);
+  const effectsRef = useRef(effects);
+  const isPlayingRef = useRef(isPlaying);
+
+  // Update refs when state changes
+  useEffect(() => {
+    samplerStateRef.current = samplerState;
+  }, [samplerState]);
+
+  useEffect(() => {
+    effectsRef.current = effects;
+  }, [effects]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // Initialize engines on mount
   useEffect(() => {
     setMounted(true);
-    setIsSignedIn(isAuthenticated());
-  }, []);
+    checkAuth();
+    initializeEngines();
+  }, [initializeEngines, checkAuth]);
 
+  // Set up engine callbacks after engines are initialized
   useEffect(() => {
-    if (clips.length === 0) {
-      setPadAssignments(Array(16).fill(null));
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    audioEngine.setCallbacks({
+      onTimeUpdate: (time) => setCurrentTime(time),
+      onPlayStateChange: (playing) => setIsPlaying(playing),
+      onEnd: () => {
+        setCurrentTime(0);
+      },
+    });
+  }, [getAudioEngine, setCurrentTime, setIsPlaying]);
+
+  // Restore audio buffer if we have a file but engine was reset
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    // If we have a stored buffer but engine doesn't, restore it
+    if (audioBuffer && !audioEngine.getBuffer()) {
+      // We need to reload from file since AudioBuffer can't be easily cloned
+      // The buffer in store is just for reference
     }
-  }, [clips]);
+  }, [audioBuffer, getAudioEngine]);
 
+  // Set up sequencer step callback
   useEffect(() => {
-    audioContextRef.current = new AudioContext();
-    const ctx = audioContextRef.current;
+    const sequencerEngine = getSequencerEngine();
+    const audioEngine = getAudioEngine();
+    if (!sequencerEngine || !audioEngine) return;
 
-    gainNodeRef.current = ctx.createGain();
-    gainNodeRef.current.gain.value = effects.volume;
-    gainNodeRef.current.connect(ctx.destination);
+    sequencerEngine.onStep((padIndex) => {
+      const currentState = samplerStateRef.current;
+      const pad = currentState.pads[padIndex];
+      const clip = currentState.clips.find((c) => c.id === pad?.clipId);
 
-    return () => {
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
+      if (!clip) return;
+
+      // Stop main player if playing
+      if (isPlayingRef.current) {
+        audioEngine.pause();
       }
-    };
-  }, []);
 
-  useEffect(() => {
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.setTargetAtTime(
-        effects.volume,
-        audioContextRef.current!.currentTime,
-        0.01
-      );
-    }
-  }, [effects.volume]);
+      // Get current global effects
+      const currentEffects = effectsRef.current;
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (isPlaying && sourceNodeRef.current) {
-        pauseAudio();
-        playAudio();
-      }
-    }, 150);
+      // Mark pad as playing
+      setSamplerState({
+        ...samplerStateRef.current,
+        sequencer: {
+          ...samplerStateRef.current.sequencer,
+          currentStep: padIndex,
+        },
+        pads: samplerStateRef.current.pads.map((p, i) =>
+          i === padIndex
+            ? { ...p, isPlaying: true }
+            : { ...p, isPlaying: false }
+        ),
+      });
 
-    return () => clearTimeout(timer);
-  }, [effects.pitch]);
+      // Reset and seek to correct position
+      audioEngine.reset();
+      const seekTime = currentEffects.reverse
+        ? clip.visualEndTime
+        : clip.visualStartTime;
+      audioEngine.seek(seekTime, currentEffects, clip);
+      audioEngine.play(currentEffects, clip);
 
-  useEffect(() => {
-    if (!audioBuffer) return;
+      // Calculate clip duration
+      const clipDuration =
+        (clip.visualEndTime - clip.visualStartTime) /
+        (currentEffects.pitchEnabled ? currentEffects.pitch : 1);
+      const clipDurationMs = clipDuration * 1000;
 
-    if (effects.reverse) {
-      const reversed = reverseAudioBuffer(audioBuffer);
-      // pauseTimeRef.current = duration - pauseTimeRef.current;
-      // setCurrentTime(pauseTimeRef.current);
-      setProcessedBuffer(reversed);
-    } else {
-      // pauseTimeRef.current = duration - pauseTimeRef.current;
-      // setCurrentTime(pauseTimeRef.current);
-      setProcessedBuffer(audioBuffer);
-    }
-  }, [effects.reverse, audioBuffer]);
+      // Set next step delay
+      const seqEngine = getSequencerEngine();
+      seqEngine?.setNextStepDelay(clipDurationMs);
 
-  useEffect(() => {
-    if (isPlaying) {
-      pauseAudio();
-      setTimeout(() => playAudio(), 50);
-    }
-  }, [processedBuffer]);
-
-  // CHANGED: Replaced broken useEffect with proper sequencer logic
-  // This plays the clip assigned to the current sequencer step
-  useEffect(() => {
-    if (samplerMode !== "sequencer" || !isPadsPlaying) return;
-
-    const clipIndex = padAssignments[currentSequencerStep];
-
-    if (clipIndex !== null && clipIndex < clips.length) {
-      const clip = clips[clipIndex];
-      setSelectedClipId(clip.id);
-      pauseTimeRef.current = clip.startTime;
-      setCurrentTime(clip.startTime);
-      playAudio(clip);
-    } else {
-      // No clip assigned to this pad, skip to next pad with a clip
-      findNextAssignedPad();
-    }
-  }, [currentSequencerStep, isPadsPlaying, samplerMode]);
-
-  // CHANGED: Auto-advance to next step when clip finishes
-  useEffect(() => {
-    if (samplerMode !== "sequencer" || !isPadsPlaying) return;
-
-    if (!isPlaying && selectedClipId) {
+      // Auto-clear playing state
       setTimeout(() => {
-        findNextAssignedPad();
-      }, 100);
-    }
-  }, [isPlaying, samplerMode, isPadsPlaying, selectedClipId]);
+        setSamplerState({
+          ...samplerStateRef.current,
+          pads: samplerStateRef.current.pads.map((p, i) =>
+            i === padIndex ? { ...p, isPlaying: false } : p
+          ),
+        });
+      }, clipDurationMs);
+    });
+  }, [getSequencerEngine, getAudioEngine, setSamplerState]);
 
-  // Helper function to find next pad with a clip assigned
-  const findNextAssignedPad = () => {
-    let nextStep = (currentSequencerStep + 1) % 16;
-    let stepsChecked = 0;
-
-    // Look for next assigned pad, checking all 16 pads
-
-    while (stepsChecked < 16) {
-      const clipIndex = padAssignments[nextStep];
-
-      if (clipIndex !== null && clipIndex < clips.length) {
-        // Found a pad with a clip
-        setCurrentSequencerStep(nextStep);
-        return;
-      }
-
-      nextStep = (nextStep + 1) % 16;
-      if (!isLoopingRef.current && nextStep < currentSequencerStep) {
-        break;
-      }
-      stepsChecked++;
-    }
-
-    // No clips assigned anywhere, stop the sequencer
-    setIsPadsPlaying(false);
-    setSelectedClipId(null);
-    setCurrentSequencerStep(0);
-    if (sourceNodeRef && sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    setCurrentTime(0);
-    pauseTimeRef.current = 0;
-    pauseAudio();
-  };
-
-  const reverseAudioBuffer = (buffer: AudioBuffer): AudioBuffer => {
-    // return buffer;
-    const reversedBuffer = audioContextRef.current!.createBuffer(
-      buffer.numberOfChannels,
-      buffer.length,
-      buffer.sampleRate
-    );
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      const reversedData = reversedBuffer.getChannelData(channel);
-
-      for (let i = 0; i < channelData.length; i++) {
-        reversedData[i] = channelData[channelData.length - 1 - i];
-      }
-    }
-
-    return reversedBuffer;
-  };
-
+  // Update effects chain when effects change
   useEffect(() => {
-    isLoopingRef.current = isLooping;
-  }, [isLooping]);
+    const audioEngine = getAudioEngine();
+    if (audioEngine) {
+      audioEngine.getEffectsChain().updateEffects(effects);
+    }
+  }, [
+    effects.volume,
+    effects.delayTime,
+    effects.delayFeedback,
+    effects.delayMix,
+    effects.reverbMix,
+    effects.granularMix,
+    effects.tremoloMix,
+    effects.tremoloRate,
+    effects.tremoloDepth,
+    effects.convolverMix,
+    effects.eqMix,
+    effects.eqLowGain,
+    effects.eqMidGain,
+    effects.eqHighGain,
+    effects.bitcrushMix,
+    effects.bitcrushBitDepth,
+    effects.bitcrushSampleRate,
+    effects.radioMix,
+    effects.radioDistortion,
+    effects.radioStatic,
+    effects.drunkMix,
+    effects.drunkWobble,
+    effects.drunkSpeed,
+    getAudioEngine,
+  ]);
+
+  // Handle reverb room size and decay changes
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (audioEngine) {
+      audioEngine
+        .getEffectsChain()
+        .recreateReverb(effects.reverbRoomSize, effects.reverbDecay);
+
+      if (isPlaying) {
+        audioEngine.pause();
+        audioEngine.play(effects);
+      }
+    }
+  }, [effects.reverbRoomSize, effects.reverbDecay, getAudioEngine]);
+
+  // Handle effect enabled/disabled changes
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (isPlaying && audioEngine) {
+      audioEngine.pause();
+      audioEngine.play(effects);
+    }
+  }, [
+    effects.pitchEnabled,
+    effects.delayEnabled,
+    effects.reverbEnabled,
+    effects.convolverEnabled,
+    effects.tremoloEnabled,
+    effects.bitcrushEnabled,
+    effects.granularEnabled,
+    effects.radioEnabled,
+    effects.drunkEnabled,
+    effects.eqEnabled,
+    effects.repeatEnabled,
+    getAudioEngine,
+  ]);
+
+  // Handle repeat parameter changes
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (isPlaying && effects.repeatEnabled && audioEngine) {
+      audioEngine.pause();
+      audioEngine.play(effects);
+    }
+  }, [effects.repeat, effects.repeatCycleSize, getAudioEngine]);
+
+  // Handle granular parameter changes
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (isPlaying && effects.granularEnabled && audioEngine) {
+      audioEngine.pause();
+      audioEngine.play(effects);
+    }
+  }, [effects.granularGrainSize, effects.granularChaos, getAudioEngine]);
+
+  // Handle pitch changes
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (isPlaying && audioEngine) {
+      audioEngine.updatePlaybackAfterPitchChange(effects);
+    }
+  }, [effects.pitch, getAudioEngine]);
+
+  // Handle reverse
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    const currentVisualTime = currentTime;
+
+    if (isPlaying) {
+      audioEngine.pause();
+      audioEngine.seek(currentVisualTime, effects);
+      audioEngine.play(effects);
+    } else {
+      const newPauseTime = duration - audioEngine.getPauseTime();
+      audioEngine.setPauseTime(newPauseTime);
+      setCurrentTime(currentVisualTime);
+    }
+  }, [effects.reverse, getAudioEngine]);
+
+  // Update looping
+  useEffect(() => {
+    const audioEngine = getAudioEngine();
+    if (audioEngine) {
+      audioEngine.setLooping(isLooping);
+    }
+  }, [isLooping, getAudioEngine]);
+
+  // Navigation handler - pause before navigating
+  const handleNavigation = useCallback(() => {
+    pauseForNavigation();
+    setIsMenuOpen(false);
+  }, [pauseForNavigation]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-
-    if (!file) {
-      console.log("[v0] No file selected");
-      return;
-    }
+    const audioEngine = getAudioEngine();
+    if (!file || !audioEngine) return;
 
     if (isPlaying) {
-      pauseAudio();
-    }
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+      audioEngine.pause();
     }
 
-    console.log("[v0] File selected:", file.name, file.type, file.size);
     setAudioFile(file);
 
     try {
-      console.log("[v0] Reading file as array buffer...");
-      const arrayBuffer = await file.arrayBuffer();
-      console.log("[v0] Array buffer created, size:", arrayBuffer.byteLength);
-
-      console.log("[v0] Decoding audio data...");
-      const buffer = await audioContextRef.current!.decodeAudioData(
-        arrayBuffer
-      );
-      console.log(
-        "[v0] Audio decoded successfully, duration:",
-        buffer.duration
-      );
-
+      const buffer = await audioEngine.loadAudioFile(file);
       setAudioBuffer(buffer);
-      setProcessedBuffer(buffer);
       setDuration(buffer.duration);
       setCurrentTime(0);
-      pauseTimeRef.current = 0;
       setIsPlaying(false);
-      setClips([]);
-
-      console.log("[v0] Audio file loaded successfully");
     } catch (error) {
-      console.error("[v0] Error loading audio file:", error);
+      console.error("Error loading audio file:", error);
       alert(`Error loading audio file: ${error}`);
     }
   };
 
-  const handleSampleSelect = (sample: (typeof SAMPLE_LIBRARY)[0]) => {
-    console.log("[v0] Sample selected:", sample);
-    setIsSampleLibraryOpen(false);
-  };
+  const togglePlayPause = () => {
+    const audioEngine = getAudioEngine();
+    const sequencerEngine = getSequencerEngine();
+    if (!audioEngine || !sequencerEngine) return;
 
-  const playAudio = (clip?: Clip) => {
-    if (!processedBuffer || !audioContextRef.current) return;
-    const clipToPlay = clip ?? clips.find((c) => c.id === selectedClipId);
+    if (isPlaying || samplerState.sequencer.isPlaying) {
+      // Stop everything
+      audioEngine.pause();
+      sequencerEngine.stop();
+      setSamplerState({
+        ...samplerState,
+        sequencer: {
+          ...samplerState.sequencer,
+          isPlaying: false,
+          currentStep: 0,
+        },
+      });
+    } else {
+      // Start based on mode
+      if (samplerState.mode === "sequencer") {
+        const padsWithClips = samplerState.pads
+          .filter((pad) => pad.clipId !== null)
+          .map((pad) => pad.id);
 
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-
-    if (delayNodeRef.current) {
-      delayNodeRef.current.disconnect();
-    }
-    if (delayFeedbackGainRef.current) {
-      delayFeedbackGainRef.current.disconnect();
-    }
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    let visualStartPosition = pauseTimeRef.current;
-
-    let bufferStartOffset = effects.reverse
-      ? duration - visualStartPosition
-      : visualStartPosition;
-
-    let playDuration = duration;
-    if (clipToPlay) {
-      if (
-        !visualStartPosition ||
-        visualStartPosition < clipToPlay.startTime ||
-        visualStartPosition > clipToPlay.endTime
-      ) {
-        bufferStartOffset = clipToPlay.startTime;
-      }
-      if (samplerMode === "sampler") {
-        playDuration = clipToPlay.endTime;
-      } else {
-        playDuration = clipToPlay.endTime;
-        if (visualStartPosition >= clipToPlay.endTime) {
+        if (padsWithClips.length === 0 && !showNoClipsWarning) {
+          setShowNoClipsWarning(true);
+          setTimeout(() => setShowNoClipsWarning(false), 2000);
           return;
         }
+
+        sequencerEngine.setSequence(padsWithClips);
+        sequencerEngine.start();
+        setSamplerState({
+          ...samplerState,
+          sequencer: {
+            ...samplerState.sequencer,
+            isPlaying: true,
+          },
+        });
+      } else {
+        audioEngine.play(effects);
       }
     }
-
-    sourceNodeRef.current = audioContextRef.current.createBufferSource();
-    sourceNodeRef.current.buffer = processedBuffer;
-    sourceNodeRef.current.playbackRate.value = effects.pitch;
-
-    const ctx = audioContextRef.current;
-    // const delayNode = ctx.createDelay(2);
-    // const delayFeedbackGain = ctx.createGain();
-    // const delayWetGain = ctx.createGain();
-    const dryGain = ctx.createGain();
-    // const reverbWetGain = ctx.createGain();
-    // delayNodeRef.current = delayNode;
-    // delayFeedbackGainRef.current = delayFeedbackGain;
-
-    // delayNode.delayTime.value = effects.delayTime;
-    // delayFeedbackGain.gain.value = effects.delayFeedback;
-    // delayWetGain.gain.value = effects.delayMix;
-    dryGain.gain.value =
-      1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-    // reverbWetGain.gain.value = effects.reverbMix;
-
-    // delayNode.connect(delayFeedbackGain);
-    // delayFeedbackGain.connect(delayNode);
-    // delayNode.connect(delayWetGain);
-
-    // const reverb = createReverb(
-    //   ctx,
-    //   effects.reverbRoomSize,
-    //   effects.reverbDecay
-    // );
-
-    sourceNodeRef.current.connect(dryGain);
-    // sourceNodeRef.current.connect(delayNode);
-    // sourceNodeRef.current.connect(reverb.input);
-
-    dryGain.connect(gainNodeRef.current!);
-    // delayWetGain.connect(gainNodeRef.current!);
-    // reverb.output.connect(reverbWetGain);
-    // reverbWetGain.connect(gainNodeRef.current!);
-    // if (effects.reverse) {
-    //   sourceNodeRef.current.start(0, duration - startOffset);
-    // } else {
-    // }
-    sourceNodeRef.current.start(0, bufferStartOffset);
-    startTimeRef.current =
-      audioContextRef.current.currentTime - bufferStartOffset / effects.pitch;
-    playbackRateRef.current = effects.pitch;
-    setIsPlaying(true);
-
-    const updateTime = () => {
-      if (audioContextRef.current && sourceNodeRef.current) {
-        const contextElapsed =
-          audioContextRef.current.currentTime - startTimeRef.current;
-        const bufferElapsed = contextElapsed * playbackRateRef.current;
-
-        const visualTime = effects.reverse
-          ? duration - bufferElapsed
-          : bufferElapsed;
-
-        setCurrentTime(visualTime);
-
-        if (bufferElapsed >= playDuration) {
-          if (isManuallyStoppingRef.current) {
-            return;
-          }
-          if (isLoopingRef.current && samplerMode !== "sequencer") {
-            if (clipToPlay) {
-              pauseTimeRef.current = clipToPlay.startTime;
-              playAudio(clipToPlay);
-            } else {
-              pauseTimeRef.current = 0;
-              playAudio();
-            }
-            return;
-          } else {
-            setIsPlaying(false);
-            animationFrameRef.current = null;
-            if (delayNodeRef.current) {
-              delayNodeRef.current.disconnect();
-              delayNodeRef.current = null;
-            }
-            if (delayFeedbackGainRef.current) {
-              delayFeedbackGainRef.current.disconnect();
-              delayFeedbackGainRef.current = null;
-            }
-            if (samplerMode !== "sequencer") {
-              sourceNodeRef.current.stop();
-              sourceNodeRef.current.disconnect();
-              setSelectedClipId(null);
-              setCurrentTime(0);
-              pauseTimeRef.current = 0;
-            }
-
-            return;
-          }
-        }
-
-        animationFrameRef.current = requestAnimationFrame(updateTime);
-      }
-    };
-    animationFrameRef.current = requestAnimationFrame(updateTime);
-  };
-
-  const pauseAudio = () => {
-    if (sourceNodeRef.current && audioContextRef.current) {
-      isManuallyStoppingRef.current = true;
-      // isLoopingRef.current = false;
-      // setIsLooping(false);
-
-      // setSelectedClipId(null);
-
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-      if (delayNodeRef.current) {
-        delayNodeRef.current.disconnect();
-        delayNodeRef.current = null;
-      }
-      if (delayFeedbackGainRef.current) {
-        delayFeedbackGainRef.current.disconnect();
-        delayFeedbackGainRef.current = null;
-      }
-      const contextElapsed =
-        audioContextRef.current.currentTime - startTimeRef.current;
-      pauseTimeRef.current = contextElapsed * playbackRateRef.current;
-      // const bufferElapsed = contextElapsed * playbackRateRef.current;
-
-      // const visualTime = effects.reverse
-      //   ? duration - bufferElapsed
-      //   : bufferElapsed;
-      // pauseTimeRef.current = visualTime;
-      setIsPlaying(false);
-
-      setTimeout(() => {
-        isManuallyStoppingRef.current = false;
-      }, 100);
-    }
-  };
-
-  const handleClipSelect = (clipId: string | null) => {
-    if (isPlaying) {
-      pauseAudio();
-    }
-
-    setSelectedClipId(clipId);
-
-    if (clipId) {
-      const clip = clips.find((c) => c.id === clipId);
-      if (clip) {
-        pauseTimeRef.current = clip.startTime;
-        setCurrentTime(clip.startTime);
-        playAudio(clip);
-      }
-    } else {
-      pauseTimeRef.current = 0;
-      setCurrentTime(0);
-      pauseAudio();
-    }
-  };
-
-  // CHANGED: Added sequencer control handlers
-  const handleSequencerPlayPause = () => {
-    if (isPadsPlaying) {
-      setIsPadsPlaying(false);
-      pauseAudio();
-    } else {
-      setIsPadsPlaying(true);
-    }
-  };
-
-  const handleSequencerReset = () => {
-    setIsPadsPlaying(false);
-    setCurrentSequencerStep(0);
-    pauseAudio();
-    setSelectedClipId(null);
-    pauseTimeRef.current = 0;
-    setCurrentTime(0);
   };
 
   const resetAudio = () => {
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    setIsPlaying(false);
-    setCurrentTime(0);
-    pauseTimeRef.current = 0;
-  };
-
-  const togglePlayPause = () => {
-    if (samplerMode == "sequencer") {
-      handleSequencerPlayPause();
-    } else {
-      if (isPlaying) {
-        pauseAudio();
-      } else {
-        playAudio();
-      }
-    }
-  };
-
-  const downloadProcessedAudio = async () => {
-    if (!processedBuffer) return;
-
-    setIsRendering(true);
-
-    try {
-      const offlineCtx = new OfflineAudioContext(
-        processedBuffer.numberOfChannels,
-        processedBuffer.length,
-        processedBuffer.sampleRate
-      );
-
-      const source = offlineCtx.createBufferSource();
-      source.buffer = processedBuffer;
-      source.playbackRate.value = effects.pitch;
-
-      const delayNode = offlineCtx.createDelay(2);
-      const delayFeedbackGain = offlineCtx.createGain();
-      const delayWetGain = offlineCtx.createGain();
-      const dryGain = offlineCtx.createGain();
-      const reverbWetGain = offlineCtx.createGain();
-
-      delayNode.delayTime.value = effects.delayTime;
-      delayFeedbackGain.gain.value = effects.delayFeedback;
-      delayWetGain.gain.value = effects.delayMix;
-      dryGain.gain.value =
-        1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-      reverbWetGain.gain.value = effects.reverbMix;
-
-      delayNode.connect(delayFeedbackGain);
-      delayFeedbackGain.connect(delayNode);
-      delayNode.connect(delayWetGain);
-
-      const reverb = createReverb(
-        offlineCtx,
-        effects.reverbRoomSize,
-        effects.reverbDecay
-      );
-
-      source.connect(dryGain);
-      source.connect(delayNode);
-      source.connect(reverb.input);
-
-      dryGain.connect(offlineCtx.destination);
-      delayWetGain.connect(offlineCtx.destination);
-      reverb.output.connect(reverbWetGain);
-      reverbWetGain.connect(offlineCtx.destination);
-
-      source.start(0);
-      const renderedBuffer = await offlineCtx.startRendering();
-
-      const wavBlob = audioBufferToWav(renderedBuffer);
-      const url = URL.createObjectURL(wavBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `fourpage-processed-${Date.now()}.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setIsRendering(false);
-    } catch (error) {
-      console.error("Error rendering audio:", error);
-      alert("Error processing audio for download");
-      setIsRendering(false);
-    }
-  };
-
-  const downloadClips = async () => {
-    if (!processedBuffer || clips.length === 0) return;
-
-    setIsRendering(true);
-
-    try {
-      for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i];
-
-        const startSample = Math.floor(
-          clip.startTime * processedBuffer.sampleRate
-        );
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-        const clipLength = endSample - startSample;
-
-        const clipBuffer = audioContextRef.current!.createBuffer(
-          processedBuffer.numberOfChannels,
-          clipLength,
-          processedBuffer.sampleRate
-        );
-
-        for (
-          let channel = 0;
-          channel < processedBuffer.numberOfChannels;
-          channel++
-        ) {
-          const sourceData = processedBuffer.getChannelData(channel);
-          const clipData = clipBuffer.getChannelData(channel);
-          for (let j = 0; j < clipLength; j++) {
-            clipData[j] = sourceData[startSample + j];
-          }
-        }
-
-        const offlineCtx = new OfflineAudioContext(
-          clipBuffer.numberOfChannels,
-          clipBuffer.length,
-          clipBuffer.sampleRate
-        );
-
-        const source = offlineCtx.createBufferSource();
-        source.buffer = clipBuffer;
-        source.playbackRate.value = effects.pitch;
-
-        const delayNode = offlineCtx.createDelay(2);
-        const delayFeedbackGain = offlineCtx.createGain();
-        const delayWetGain = offlineCtx.createGain();
-        const dryGain = offlineCtx.createGain();
-        const reverbWetGain = offlineCtx.createGain();
-
-        delayNode.delayTime.value = effects.delayTime;
-        delayFeedbackGain.gain.value = effects.delayFeedback;
-        delayWetGain.gain.value = effects.delayMix;
-        dryGain.gain.value =
-          1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-        reverbWetGain.gain.value = effects.reverbMix;
-
-        delayNode.connect(delayFeedbackGain);
-        delayFeedbackGain.connect(delayNode);
-        delayNode.connect(delayWetGain);
-
-        const reverb = createReverb(
-          offlineCtx,
-          effects.reverbRoomSize,
-          effects.reverbDecay
-        );
-
-        source.connect(dryGain);
-        source.connect(delayNode);
-        source.connect(reverb.input);
-
-        dryGain.connect(offlineCtx.destination);
-        delayWetGain.connect(offlineCtx.destination);
-        reverb.output.connect(reverbWetGain);
-        reverbWetGain.connect(offlineCtx.destination);
-
-        source.start(0);
-        const renderedBuffer = await offlineCtx.startRendering();
-
-        const wavBlob = audioBufferToWav(renderedBuffer);
-        const url = URL.createObjectURL(wavBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `fourpage-clip-${i + 1}-${Date.now()}.wav`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-
-      setIsRendering(false);
-    } catch (error) {
-      console.error("Error rendering clips:", error);
-      alert("Error processing clips for download");
-      setIsRendering(false);
-    }
-  };
-
-  const downloadSequence = async () => {
-    if (!processedBuffer || clips.length === 0) return;
-
-    setIsRendering(true);
-
-    try {
-      const sortedClips = [...clips].sort((a, b) => a.startTime - b.startTime);
-
-      let totalLength = 0;
-      for (const clip of sortedClips) {
-        const startSample = Math.floor(
-          clip.startTime * processedBuffer.sampleRate
-        );
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-        totalLength += endSample - startSample;
-      }
-
-      const sequenceBuffer = audioContextRef.current!.createBuffer(
-        processedBuffer.numberOfChannels,
-        totalLength,
-        processedBuffer.sampleRate
-      );
-
-      let currentPosition = 0;
-      for (const clip of sortedClips) {
-        const startSample = Math.floor(
-          clip.startTime * processedBuffer.sampleRate
-        );
-        const endSample = Math.floor(clip.endTime * processedBuffer.sampleRate);
-        const clipLength = endSample - startSample;
-
-        for (
-          let channel = 0;
-          channel < processedBuffer.numberOfChannels;
-          channel++
-        ) {
-          const sourceData = processedBuffer.getChannelData(channel);
-          const sequenceData = sequenceBuffer.getChannelData(channel);
-          for (let j = 0; j < clipLength; j++) {
-            sequenceData[currentPosition + j] = sourceData[startSample + j];
-          }
-        }
-
-        currentPosition += clipLength;
-      }
-
-      const offlineCtx = new OfflineAudioContext(
-        sequenceBuffer.numberOfChannels,
-        sequenceBuffer.length,
-        sequenceBuffer.sampleRate
-      );
-
-      const source = offlineCtx.createBufferSource();
-      source.buffer = sequenceBuffer;
-      source.playbackRate.value = effects.pitch;
-
-      const delayNode = offlineCtx.createDelay(2);
-      const delayFeedbackGain = offlineCtx.createGain();
-      const delayWetGain = offlineCtx.createGain();
-      const dryGain = offlineCtx.createGain();
-      const reverbWetGain = offlineCtx.createGain();
-
-      delayNode.delayTime.value = effects.delayTime;
-      delayFeedbackGain.gain.value = effects.delayFeedback;
-      delayWetGain.gain.value = effects.delayMix;
-      dryGain.gain.value =
-        1 - Math.max(effects.delayMix, effects.reverbMix) * 0.5;
-      reverbWetGain.gain.value = effects.reverbMix;
-
-      delayNode.connect(delayFeedbackGain);
-      delayFeedbackGain.connect(delayNode);
-      delayNode.connect(delayWetGain);
-
-      const reverb = createReverb(
-        offlineCtx,
-        effects.reverbRoomSize,
-        effects.reverbDecay
-      );
-
-      source.connect(dryGain);
-      source.connect(delayNode);
-      source.connect(reverb.input);
-
-      dryGain.connect(offlineCtx.destination);
-      delayWetGain.connect(offlineCtx.destination);
-      reverb.output.connect(reverbWetGain);
-      reverbWetGain.connect(offlineCtx.destination);
-
-      source.start(0);
-      const renderedBuffer = await offlineCtx.startRendering();
-
-      const wavBlob = audioBufferToWav(renderedBuffer);
-      const url = URL.createObjectURL(wavBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `fourpage-sequence-${Date.now()}.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setIsRendering(false);
-    } catch (error) {
-      console.error("Error rendering sequence:", error);
-      alert("Error processing sequence for download");
-      setIsRendering(false);
-    }
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+    audioEngine.reset();
   };
 
   const seekAudio = (time: number) => {
-    const wasPlaying = isPlaying;
-
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    if (effects.reverse) {
-      pauseTimeRef.current = duration - time;
-      setCurrentTime(time);
-    } else {
-      pauseTimeRef.current = time;
-      setCurrentTime(time);
-    }
-
-    setIsPlaying(false);
-
-    if (wasPlaying) {
-      playAudio();
-    }
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+    audioEngine.seek(time, effects);
   };
 
-  const createReverb = (
-    ctx: AudioContext | OfflineAudioContext,
-    roomSize: number,
-    decay: number
-  ) => {
-    const delays = [
-      ctx.createDelay(1),
-      ctx.createDelay(1),
-      ctx.createDelay(1),
-      ctx.createDelay(1),
-    ];
+  const handlePadTrigger = (padId: number) => {
+    const audioEngine = getAudioEngine();
+    const sequencerEngine = getSequencerEngine();
+    if (!audioEngine) return;
 
-    const gains = [
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-      ctx.createGain(),
-    ];
+    const pad = samplerState.pads[padId];
+    const clip = samplerState.clips.find((c) => c.id === pad.clipId);
 
-    const baseTimes = [0.0297, 0.0371, 0.0411, 0.0437];
-    delays.forEach((delay, i) => {
-      delay.delayTime.value = baseTimes[i] * (0.5 + roomSize * 1.5);
-      gains[i].gain.value = decay * 0.7;
-    });
-
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-
-    delays.forEach((delay, i) => {
-      input.connect(delay);
-      delay.connect(gains[i]);
-      gains[i].connect(output);
-      gains[i].connect(delay);
-    });
-
-    return { input, output };
-  };
-
-  const handleSaveProject = async () => {
-    if (!isSignedIn || (!isSignedIn && !hasUnsavedChanges)) {
-      window.location.href = "/sign-in";
+    if (!clip) {
+      console.warn(`Pad ${padId} has no assigned clip`);
       return;
     }
 
-    setIsSaving(true);
+    if (isPlaying) {
+      audioEngine.pause();
+    }
+    if (samplerState.sequencer.isPlaying && sequencerEngine) {
+      sequencerEngine.stop();
+      setSamplerState({
+        ...samplerState,
+        sequencer: {
+          ...samplerState.sequencer,
+          isPlaying: false,
+          currentStep: 0,
+        },
+      });
+    }
+
+    audioEngine.reset();
+    const seekTime = effects.reverse
+      ? clip.visualEndTime
+      : clip.visualStartTime;
+    audioEngine.seek(seekTime, effects, clip);
+    audioEngine.play(effects, clip);
+
+    if (padPlayingTimeoutRef.current) {
+      clearTimeout(padPlayingTimeoutRef.current);
+      padPlayingTimeoutRef.current = null;
+    }
+
+    setSamplerState({
+      ...samplerState,
+      pads: samplerState.pads.map((p, i) =>
+        i === padId ? { ...p, isPlaying: true } : { ...p, isPlaying: false }
+      ),
+    });
+
+    const clipDuration =
+      (clip.visualEndTime - clip.visualStartTime) /
+      (effects.pitchEnabled ? effects.pitch : 1);
+    padPlayingTimeoutRef.current = setTimeout(() => {
+      setSamplerState({
+        ...samplerStateRef.current,
+        pads: samplerStateRef.current.pads.map((p, i) =>
+          i === padId ? { ...p, isPlaying: false } : p
+        ),
+      });
+      padPlayingTimeoutRef.current = null;
+    }, clipDuration * 1000);
+  };
+
+  const handlePadAssignClip = (padId: number, clipId: string | null) => {
+    setSamplerState({
+      ...samplerState,
+      pads: samplerState.pads.map((p, i) =>
+        i === padId ? { ...p, clipId } : p
+      ),
+    });
+  };
+
+  const handleModeChange = (mode: "sampler" | "sequencer") => {
+    const audioEngine = getAudioEngine();
+    const sequencerEngine = getSequencerEngine();
+
+    if (audioEngine && isPlaying) {
+      audioEngine.pause();
+    }
+    if (sequencerEngine && samplerState.sequencer.isPlaying) {
+      sequencerEngine.stop();
+    }
+
+    setSamplerState({
+      ...samplerState,
+      mode,
+      sequencer: {
+        ...samplerState.sequencer,
+        isPlaying: false,
+        currentStep: 0,
+      },
+    });
+  };
+
+  const downloadBuffer = (buffer: AudioBuffer, filename: string) => {
+    const wavBlob = audioBufferToWav(buffer);
+    const url = URL.createObjectURL(wavBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadFullAudio = async () => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    setIsRendering(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setHasUnsavedChanges(false);
-      setLastSavedTime(new Date());
+      const renderedBuffer = await audioEngine.renderWithEffects(effects);
+      downloadBuffer(renderedBuffer, `fourpage-full-${Date.now()}.wav`);
     } catch (error) {
-      console.error("[v0] Error saving project:", error);
-      alert("Error saving project");
+      console.error("Error rendering audio:", error);
+      alert("Error processing audio for download");
     } finally {
-      setIsSaving(false);
+      setIsRendering(false);
+    }
+  };
+
+  const downloadAllClipsMerged = async () => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    // Get clips in pad order (only assigned clips)
+    const clipsInOrder = samplerState.pads
+      .filter((pad) => pad.clipId !== null)
+      .map((pad) => samplerState.clips.find((c) => c.id === pad.clipId))
+      .filter((clip): clip is NonNullable<typeof clip> => clip !== undefined)
+      .map((clip) => ({
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+      }));
+
+    if (clipsInOrder.length === 0) {
+      alert("No clips assigned to pads");
+      return;
+    }
+
+    setIsRendering(true);
+
+    try {
+      const renderedBuffer = await audioEngine.renderMergedClips(
+        clipsInOrder,
+        effects
+      );
+      downloadBuffer(renderedBuffer, `fourpage-clips-merged-${Date.now()}.wav`);
+    } catch (error) {
+      console.error("Error rendering clips:", error);
+      alert("Error processing clips for download");
+    } finally {
+      setIsRendering(false);
+    }
+  };
+
+  const downloadSingleClip = async (clipId: string) => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    const clip = samplerState.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    // Find which pad this clip is assigned to
+    const pad = samplerState.pads.find((p) => p.clipId === clipId);
+    const padLabel = pad ? `pad${pad.id + 1}` : "clip";
+
+    setIsRendering(true);
+
+    try {
+      const renderedBuffer = await audioEngine.renderClipWithEffects(
+        { startTime: clip.startTime, endTime: clip.endTime },
+        effects
+      );
+      downloadBuffer(
+        renderedBuffer,
+        `fourpage-${padLabel}-${clip.name || clipId.slice(0, 6)}.wav`
+      );
+    } catch (error) {
+      console.error("Error rendering clip:", error);
+      alert("Error processing clip for download");
+    } finally {
+      setIsRendering(false);
     }
   };
 
@@ -962,98 +586,123 @@ export default function AudioManipulator() {
       <header className="border-b-2 border-foreground pb-2 mb-4">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
-              FOURPAGE{" "}
-              <span className="text-sm hidden md:inline md:text-lg font-normal text-muted-foreground">
-                Sixty Lens
-              </span>
-            </h1>
+            <Link
+              href="/home"
+              onClick={handleNavigation}
+              className="cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <h1 className="font-mono text-2xl md:text-4xl font-bold tracking-tight">
+                FOURPAGE{" "}
+                <span className="text-sm hidden md:inline md:text-lg font-normal text-muted-foreground">
+                  Sixty Lens
+                </span>
+              </h1>
+            </Link>
           </div>
-          <div className="flex items-center gap-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleSaveProject}
-                    variant={
-                      hasUnsavedChanges && isSignedIn ? "default" : "outline"
-                    }
-                    disabled={isSaving}
-                    size="icon"
-                    className={`font-mono uppercase tracking-wider relative w-9 h-9 ${
-                      !isSignedIn || (!hasUnsavedChanges && isSignedIn)
-                        ? "bg-transparent"
-                        : ""
-                    }`}
-                  >
-                    {isSaving ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : !isSignedIn ? (
-                      <Lock className="w-4 h-4" />
-                    ) : hasUnsavedChanges ? (
-                      <>
-                        <div className="w-1.5 h-1.5 rounded-full bg-background absolute top-1 right-1" />
-                        <Save className="w-4 h-4" />
-                      </>
-                    ) : (
-                      <Save className="w-4 h-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="font-mono text-xs">
-                  {!isSignedIn
-                    ? "Sign in to save"
-                    : hasUnsavedChanges
-                    ? "Save project"
-                    : lastSavedTime
-                    ? `Saved ${lastSavedTime.toLocaleTimeString()}`
-                    : "Saved"}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            {isSignedIn ? (
-              <Link href="/profile">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="font-mono bg-transparent p-2"
-                >
-                  <Avatar className="w-6 h-6">
-                    <AvatarFallback className="bg-transparent text-foreground" />
-                  </Avatar>
-                </Button>
-              </Link>
-            ) : (
-              <>
-                <Link href="/sign-in">
-                  <Button
-                    variant="outline"
-                    size="text"
-                    className="font-mono uppercase tracking-wider bg-transparent"
-                  >
-                    <LogIn className="w-4 h-4" />
-                  </Button>
-                </Link>
-              </>
-            )}
-            <FeedbackDialog />
-            {mounted && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="font-mono bg-transparent"
-              >
-                {theme === "dark" ? (
-                  <Sun className="w-4 h-4" />
-                ) : (
-                  <Moon className="w-4 h-4" />
-                )}
-              </Button>
-            )}
-          </div>
+          <Button
+            onClick={() => setIsMenuOpen(true)}
+            variant="outline"
+            size="icon"
+            className="font-mono bg-transparent"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
         </div>
       </header>
+
+      {isMenuOpen && (
+        <div
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setIsMenuOpen(false)}
+        >
+          <div
+            className="bg-background border-2 border-foreground w-full max-w-md font-mono relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b-2 border-foreground p-6 bg-background flex items-center justify-between">
+              <h2 className="font-mono text-xl font-bold tracking-tight uppercase">
+                MAIN MENU
+              </h2>
+              <button
+                onClick={() => setIsMenuOpen(false)}
+                className="font-mono text-xl font-bold hover:opacity-80 transition-opacity"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="space-y-4">
+                <Link href="/home" className="block" onClick={handleNavigation}>
+                  <button className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm">
+                    1 HOME
+                  </button>
+                </Link>
+
+                {isSignedIn ? (
+                  <Link
+                    href="/profile"
+                    className="block"
+                    onClick={handleNavigation}
+                  >
+                    <button className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm">
+                      2 PROFILE
+                    </button>
+                  </Link>
+                ) : (
+                  <Link
+                    href="/sign-in"
+                    className="block"
+                    onClick={handleNavigation}
+                  >
+                    <button className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm">
+                      2 SIGN IN
+                    </button>
+                  </Link>
+                )}
+
+                <div className="relative">
+                  <button
+                    className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      setIsFeedbackOpen(true);
+                    }}
+                  >
+                    3 FEEDBACK
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setTheme(theme === "dark" ? "light" : "dark");
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full text-left hover:bg-foreground hover:text-background transition-colors px-3 py-2 tracking-widest text-sm"
+                  suppressHydrationWarning
+                >
+                  <span suppressHydrationWarning>
+                    4{" "}
+                    {mounted
+                      ? theme === "dark"
+                        ? "LIGHT MODE"
+                        : "DARK MODE"
+                      : "THEME"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full">
+        <FeedbackDialog
+          openValue={isFeedbackOpen}
+          onOpenChange={() => setIsFeedbackOpen(false)}
+        />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
@@ -1083,57 +732,6 @@ export default function AudioManipulator() {
                     Select Audio File
                   </Button>
                 </label>
-                <Dialog
-                  open={isSampleLibraryOpen}
-                  onOpenChange={setIsSampleLibraryOpen}
-                >
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      className="font-mono uppercase tracking-wider bg-transparent w-full"
-                    >
-                      Browse Sample Library
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle className="font-mono text-xl uppercase tracking-wider">
-                        Sample Library
-                      </DialogTitle>
-                      <DialogDescription className="font-mono text-sm">
-                        Select a sample from the library to load
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-2 mt-4">
-                      {SAMPLE_LIBRARY.map((sample) => (
-                        <button
-                          key={sample.id}
-                          onClick={() => handleSampleSelect(sample)}
-                          className="w-full border-2 border-foreground p-4 hover:bg-muted/50 transition-colors text-left"
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <h3 className="font-mono font-bold text-base mb-1">
-                                {sample.name}
-                              </h3>
-                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <span className="font-mono">
-                                  By {sample.author}
-                                </span>
-                                <span className="font-mono">•</span>
-                                <span className="font-mono uppercase tracking-wider">
-                                  {sample.genre}
-                                </span>
-                              </div>
-                            </div>
-                            <PlayIcon className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </DialogContent>
-                </Dialog>
               </div>
             </div>
           ) : (
@@ -1168,31 +766,70 @@ export default function AudioManipulator() {
 
                 <div className="p-2 relative border-b-2 border-foreground">
                   <WaveformVisualizer
-                    audioBuffer={audioBuffer}
+                    audioBuffer={getAudioEngine()?.getBuffer() || null}
                     currentTime={currentTime}
+                    isReversed={effects.reverse}
                     duration={duration}
                     onSeek={seekAudio}
-                    clips={clips}
-                    onClipsChange={setClips}
-                    onPadAssignmentsChange={setPadAssignments}
-                    pauseAudio={pauseAudio}
+                    clips={samplerState.clips}
+                    onClipsChange={(newClips) => {
+                      if (newClips.length > samplerState.clips.length) {
+                        const newClip = newClips[newClips.length - 1];
+                        const freePadIndex = samplerState.pads.findIndex(
+                          (p) => p.clipId === null
+                        );
+
+                        if (freePadIndex !== -1) {
+                          setSamplerState({
+                            ...samplerState,
+                            clips: newClips,
+                            pads: samplerState.pads.map((p, i) =>
+                              i === freePadIndex
+                                ? { ...p, clipId: newClip.id }
+                                : p
+                            ),
+                          });
+                          return;
+                        }
+                      }
+
+                      const validClipIds = new Set(newClips.map((c) => c.id));
+                      setSamplerState({
+                        ...samplerState,
+                        clips: newClips,
+                        pads: samplerState.pads.map((p) =>
+                          p.clipId && !validClipIds.has(p.clipId)
+                            ? { ...p, clipId: null }
+                            : p
+                        ),
+                      });
+                    }}
+                    pauseAudio={() => getAudioEngine()?.pause()}
                   />
                 </div>
 
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <Button
-                        onClick={togglePlayPause}
-                        size="sm"
-                        className="font-mono uppercase tracking-wider"
-                      >
-                        {isPlaying ? (
-                          <Pause className="w-4 h-4" />
-                        ) : (
-                          <Play className="w-4 h-4" />
+                      <div className="relative">
+                        <Button
+                          onClick={togglePlayPause}
+                          size="sm"
+                          className="font-mono uppercase tracking-wider"
+                        >
+                          {isPlaying ? (
+                            <Pause className="w-4 h-4" />
+                          ) : (
+                            <Play className="w-4 h-4" />
+                          )}
+                        </Button>
+                        {showNoClipsWarning && (
+                          <div className="absolute bottom-full left-0 mb-2 px-3 py-1.5 bg-warning text-warning-foreground text-xs font-mono rounded whitespace-nowrap shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                            No clips to play
+                            <div className="absolute top-full left-3 border-4 border-transparent border-t-warning" />
+                          </div>
                         )}
-                      </Button>
+                      </div>
                       <Button
                         onClick={resetAudio}
                         variant="outline"
@@ -1226,34 +863,55 @@ export default function AudioManipulator() {
                             )}
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="font-mono">
-                          <DropdownMenuItem onClick={downloadProcessedAudio}>
+                        <DropdownMenuContent
+                          align="end"
+                          className="font-mono min-w-[180px]"
+                        >
+                          <DropdownMenuItem onClick={downloadFullAudio}>
                             <Download className="w-4 h-4 mr-2" />
                             Full Audio
                           </DropdownMenuItem>
-                          {clips.length > 0 && (
+                          {samplerState.pads.some((p) => p.clipId !== null) && (
                             <>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={downloadClips}>
+                              <DropdownMenuItem onClick={downloadAllClipsMerged}>
                                 <Download className="w-4 h-4 mr-2" />
-                                Clips ({clips.length})
+                                All Clips Merged
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={downloadSequence}>
-                                <Download className="w-4 h-4 mr-2" />
-                                Sequence
-                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <div className="px-2 py-1 text-xs text-muted-foreground uppercase tracking-wider">
+                                Individual Clips
+                              </div>
+                              {samplerState.pads
+                                .filter((pad) => pad.clipId !== null)
+                                .map((pad) => {
+                                  const clip = samplerState.clips.find(
+                                    (c) => c.id === pad.clipId
+                                  );
+                                  return (
+                                    <DropdownMenuItem
+                                      key={pad.id}
+                                      onClick={() =>
+                                        pad.clipId &&
+                                        downloadSingleClip(pad.clipId)
+                                      }
+                                    >
+                                      <Download className="w-4 h-4 mr-2" />
+                                      Pad {pad.id + 1}
+                                      {clip?.name && (
+                                        <span className="ml-1 text-muted-foreground text-xs">
+                                          ({clip.name})
+                                        </span>
+                                      )}
+                                    </DropdownMenuItem>
+                                  );
+                                })}
                             </>
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
                     <div className="font-mono text-xs uppercase tracking-wider">
-                      {selectedClipId && (
-                        <span className="text-muted-foreground mr-2">
-                          Clip{" "}
-                          {clips.findIndex((c) => c.id === selectedClipId) + 1}
-                        </span>
-                      )}
                       {formatTime(currentTime)} / {formatTime(duration)}
                     </div>
                   </div>
@@ -1276,35 +934,21 @@ export default function AudioManipulator() {
                 </div>
               </div>
 
-              {/* CHANGED: Updated props to pass sequencer state */}
-              <SamplerPads
-                audioBuffer={audioBuffer}
-                clips={clips}
-                selectedClipId={selectedClipId}
-                onClipSelect={handleClipSelect}
-                isPlaying={isPlaying}
-                samplerMode={samplerMode}
-                setSamplerMode={setSamplerMode}
-                isPadsPlaying={isPadsPlaying}
-                onSequencerPlayPause={handleSequencerPlayPause}
-                onSequencerReset={handleSequencerReset}
-                currentSequencerStep={currentSequencerStep}
-                padAssignments={padAssignments}
-                onPadAssignmentsChange={setPadAssignments}
-                // onPlayStateChange={(playing) => {
-                //   console.log("CLICICIC");
-                //   if (playing) {
-                //     playAudio();
-                //   } else {
-                //     pauseAudio();
-                //   }
-                // }}
-              />
+              <div className=" border-foreground pt-2">
+                <SamplerPads
+                  pads={samplerState.pads}
+                  clips={samplerState.clips}
+                  onPadTrigger={handlePadTrigger}
+                  onPadAssignClip={handlePadAssignClip}
+                  mode={samplerState.mode}
+                  onModeChange={handleModeChange}
+                />
+              </div>
             </>
           )}
         </div>
 
-        <div className="space-y-4">
+        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto space-y-4">
           <EffectsPanel effects={effects} setEffects={setEffects} />
         </div>
       </div>

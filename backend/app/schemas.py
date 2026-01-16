@@ -37,6 +37,18 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: Optional[str] = None
 
+# Auth Response - returned to frontend (without exposing tokens directly)
+class AuthResponse(BaseModel):
+    user: UserProfile
+    message: str
+
+class MessageResponse(BaseModel):
+    message: str
+
+class AuthStatusResponse(BaseModel):
+    authenticated: bool
+    user: Optional[UserProfile] = None
+
 # Project Schemas
 class ProjectBase(BaseModel):
     name: str

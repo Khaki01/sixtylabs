@@ -1,18 +1,12 @@
-const TOKEN_KEY = 'sixtylabs_token';
+// Re-export from auth store for backwards compatibility
+// This file is kept for any components that may import from here
+export { useAuthStore } from '@/lib/stores/auth-store';
 
-export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+// Simple hook for checking auth status
+export function useAuth() {
+  const { user, isAuthenticated, isLoading, checkAuth, logout } = useAuthStore();
+  return { user, isAuthenticated, isLoading, checkAuth, logout };
 }
 
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function removeToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
-export function isAuthenticated(): boolean {
-  return !!getToken();
-}
+// Import the store for use in hook
+import { useAuthStore } from '@/lib/stores/auth-store';

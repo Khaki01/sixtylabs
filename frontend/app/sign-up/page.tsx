@@ -3,14 +3,15 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signUp } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import { Checkbox } from "@/components/ui/checkbox";
+import { X } from "lucide-react";
 
 export default function SignUpPage() {
   const router = useRouter();
+  const { signUp, isAuthenticated, isLoading: authLoading, checkAuth } = useAuthStore();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -18,6 +19,16 @@ export default function SignUpPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) {
+      router.push("/");
+    }
+  }, [isAuthenticated, authLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,15 +55,23 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      const response = await signUp({ email, username, password });
-      setToken(response.access_token);
-      router.push("/"); // Redirect to home
-    } catch (err: any) {
-      setError(err.message || "Sign up failed");
+      await signUp({ email, username, password });
+      router.push("/");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Sign up failed";
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-8 flex items-center justify-center">
+        <div className="font-mono text-xl">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8 flex items-center justify-center">
@@ -71,10 +90,10 @@ export default function SignUpPage() {
             </Link>
             <Link
               href="/"
-              className="font-mono text-xl font-bold hover:opacity-80 transition-opacity"
+              className="hover:opacity-60 transition-opacity p-1"
               aria-label="Close"
             >
-              ×
+              <X className="w-6 h-6" />
             </Link>
           </div>
 
@@ -163,7 +182,6 @@ export default function SignUpPage() {
                   onCheckedChange={(checked) =>
                     setAgreedToTerms(checked as boolean)
                   }
-                  required
                   className="mt-0.5"
                 />
                 <label

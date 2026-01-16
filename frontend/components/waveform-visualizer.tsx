@@ -11,32 +11,35 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@radix-ui/react-tooltip";
+import type { Clip } from "@/types/audio";
 
-export interface Clip {
-  id: string;
-  startTime: number;
-  endTime: number;
-}
+// Generate random color for clips
+const generateClipColor = (): string => {
+  // Plain gray style - no colors
+  return 'rgba(128, 128, 128, 0.25)';
+};
 
 interface WaveformVisualizerProps {
   audioBuffer: AudioBuffer | null;
   currentTime: number;
+  isReversed: boolean;
   duration: number;
   onSeek?: (time: number) => void;
   clips?: Clip[];
   onClipsChange?: (clips: Clip[]) => void;
-  onPadAssignmentsChange?: (assignments: (number | null)[]) => void;
   pauseAudio: () => void;
 }
+
+const DELTA_TIME = 0.0001;
 
 export default function WaveformVisualizer({
   audioBuffer,
   currentTime,
+  isReversed,
   duration,
   onSeek,
   clips = [],
   onClipsChange,
-  onPadAssignmentsChange,
   pauseAudio,
 }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -103,20 +106,23 @@ export default function WaveformVisualizer({
     const visibleDuration = visibleEndTime - visibleStartTime;
 
     clips.forEach((clip, index) => {
-      if (clip.endTime < visibleStartTime || clip.startTime > visibleEndTime)
+      if (
+        clip.visualEndTime < visibleStartTime ||
+        clip.visualStartTime > visibleEndTime
+      )
         return;
 
       const clipStartX = Math.max(
         0,
-        ((clip.startTime - visibleStartTime) / visibleDuration) * width
+        ((clip.visualStartTime - visibleStartTime) / visibleDuration) * width
       );
       const clipEndX = Math.min(
         width,
-        ((clip.endTime - visibleStartTime) / visibleDuration) * width
+        ((clip.visualEndTime - visibleStartTime) / visibleDuration) * width
       );
 
-      // Light gray fill
-      ctx.fillStyle = "rgba(128, 128, 128, 0.15)";
+      // Use clip's color or fallback to gray
+      ctx.fillStyle = clip.color || "rgba(128, 128, 128, 0.25)";
       ctx.fillRect(clipStartX, 0, clipEndX - clipStartX, height);
 
       const foregroundColor =
@@ -153,18 +159,15 @@ export default function WaveformVisualizer({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Draw clip number
-      const clipNumber = index + 1;
-      const clipWidth = clipEndX - clipStartX;
-      if (clipWidth > 20) {
-        // console.log(clipNumber);
-        // TODO: need to add delete icon on top on hover instead of number and then make it delete the clip
-        ctx.fillStyle = foregroundColor;
-        ctx.font = "bold 12px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        ctx.fillText(`${clipNumber}`, clipStartX + clipWidth / 2, 4);
-      }
+      // Draw clip number at top center
+      const clipCenterX = (clipStartX + clipEndX) / 2;
+      const clipNumber = (index + 1).toString();
+
+      ctx.font = "bold 14px monospace";
+      ctx.fillStyle = foregroundColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(clipNumber, clipCenterX, 4);
     });
 
     if (
@@ -387,16 +390,20 @@ export default function WaveformVisualizer({
     const edgeThreshold = 8; // pixels
 
     for (const clip of clips) {
-      if (clip.endTime < visibleStartTime || clip.startTime > visibleEndTime)
+      if (
+        clip.visualEndTime < visibleStartTime ||
+        clip.visualStartTime > visibleEndTime
+      )
         continue;
 
       const clipStartX = Math.max(
         0,
-        ((clip.startTime - visibleStartTime) / visibleDuration) * rect.width
+        ((clip.visualStartTime - visibleStartTime) / visibleDuration) *
+          rect.width
       );
       const clipEndX = Math.min(
         rect.width,
-        ((clip.endTime - visibleStartTime) / visibleDuration) * rect.width
+        ((clip.visualEndTime - visibleStartTime) / visibleDuration) * rect.width
       );
 
       if (Math.abs(x - clipStartX) < edgeThreshold) {
@@ -411,7 +418,6 @@ export default function WaveformVisualizer({
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    console.log("HEHEHEEHEHEH");
     if (!canvasRef.current || !onSeek) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
@@ -458,15 +464,27 @@ export default function WaveformVisualizer({
         if (clip.id === draggedClipEdge.clipId) {
           if (draggedClipEdge.edge === "start") {
             // Ensure start doesn't go past end (leave at least 0.1s)
+            const newVisualStart = Math.min(newTime, clip.visualEndTime - 0.1);
+
             return {
               ...clip,
-              startTime: Math.min(newTime, clip.endTime - 0.1),
+              startTime: isReversed
+                ? duration - clip.visualEndTime
+                : newVisualStart,
+              endTime: isReversed ? duration - newVisualStart : clip.endTime,
+              visualStartTime: newVisualStart,
             };
           } else {
             // Ensure end doesn't go before start (leave at least 0.1s)
+            const newVisualEnd = Math.max(newTime, clip.visualStartTime + 0.1);
+
             return {
               ...clip,
-              endTime: Math.max(newTime, clip.startTime + 0.1),
+              startTime: isReversed ? duration - newVisualEnd : clip.startTime,
+              endTime: isReversed
+                ? duration - clip.visualStartTime
+                : newVisualEnd,
+              visualEndTime: newVisualEnd,
             };
           }
         }
@@ -512,9 +530,14 @@ export default function WaveformVisualizer({
       if (endTime - startTime > 0.1) {
         const newClip: Clip = {
           id: `clip-${Date.now()}`,
-          startTime,
-          endTime,
+          startTime: isReversed ? duration - endTime : startTime,
+          endTime: isReversed ? duration - startTime : endTime,
+          visualStartTime: startTime,
+          visualEndTime: endTime,
+          color: generateClipColor(), // Add random color
+          name: `Clip ${clips.length + 1}`, // Auto-name clips
         };
+        // Append to existing clips instead of replacing
         onClipsChange([...clips, newClip]);
       }
 
@@ -591,14 +614,28 @@ export default function WaveformVisualizer({
       const updatedClips = clips.map((clip) => {
         if (clip.id === draggedClipEdge.clipId) {
           if (draggedClipEdge.edge === "start") {
+            // Ensure start doesn't go past end (leave at least 0.1s)
+            const newVisualStart = Math.min(newTime, clip.visualEndTime - 0.1);
+
             return {
               ...clip,
-              startTime: Math.min(newTime, clip.endTime - 0.1),
+              startTime: isReversed
+                ? duration - clip.visualEndTime
+                : newVisualStart,
+              endTime: isReversed ? duration - newVisualStart : clip.endTime,
+              visualStartTime: newVisualStart,
             };
           } else {
+            // Ensure end doesn't go before start (leave at least 0.1s)
+            const newVisualEnd = Math.max(newTime, clip.visualStartTime + 0.1);
+
             return {
               ...clip,
-              endTime: Math.max(newTime, clip.startTime + 0.1),
+              startTime: isReversed ? duration - newVisualEnd : clip.startTime,
+              endTime: isReversed
+                ? duration - clip.visualStartTime
+                : newVisualEnd,
+              visualEndTime: newVisualEnd,
             };
           }
         }
@@ -633,9 +670,14 @@ export default function WaveformVisualizer({
       if (endTime - startTime > 0.1) {
         const newClip: Clip = {
           id: `clip-${Date.now()}`,
-          startTime,
-          endTime,
+          startTime: isReversed ? duration - endTime : startTime,
+          endTime: isReversed ? duration - startTime : endTime,
+          visualStartTime: startTime,
+          visualEndTime: endTime,
+          color: generateClipColor(), // Add random color
+          name: `Clip ${clips.length + 1}`, // Auto-name clips
         };
+        // Append to existing clips instead of replacing
         onClipsChange([...clips, newClip]);
       }
 
@@ -738,9 +780,6 @@ export default function WaveformVisualizer({
     if (onClipsChange) {
       onClipsChange([]);
     }
-    // if (onPadAssignmentsChange) {
-    //   onPadAssignmentsChange([]);
-    // }
   };
 
   return (
@@ -755,16 +794,6 @@ export default function WaveformVisualizer({
           >
             <Trash2 className="w-3 h-3" />
           </Button>
-          // <TooltipProvider>
-          //   <Tooltip>
-          //     <TooltipTrigger asChild>
-
-          //     </TooltipTrigger>
-          //     <TooltipContent className="font-mono text-xs">
-          //       {"Delete All Clips"}
-          //     </TooltipContent>
-          //   </Tooltip>
-          // </TooltipProvider>
         )}
         <Button
           onClick={handleZoomOut}

@@ -1,374 +1,239 @@
 "use client";
 
-import type React from "react";
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
+import type { SamplerPad, Clip } from "@/types/audio";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, RotateCcw, X } from "lucide-react";
-import type { Clip } from "./waveform-visualizer";
+import { MoreVertical } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-const PAD_KEYS = [
-  "1",
-  "2",
-  "3",
-  "4",
-  "Q",
-  "W",
-  "E",
-  "R",
-  "A",
-  "S",
-  "D",
-  "F",
-  "Z",
-  "X",
-  "C",
-  "V",
-];
-
-// CHANGED: Updated interface with new sequencer props
 interface SamplerPadsProps {
-  audioBuffer: AudioBuffer | null;
-  clips?: Clip[];
-  selectedClipId?: string | null;
-  onClipSelect?: (clipId: string | null) => void;
-  isPlaying?: boolean;
-  onPlayStateChange?: (isPlaying: boolean) => void;
-  samplerMode?: "sequencer" | "sampler";
-  setSamplerMode?: (mode: "sequencer" | "sampler") => void;
-  isPadsPlaying?: boolean;
-  onSequencerPlayPause?: () => void;
-  onSequencerReset?: () => void;
-  currentSequencerStep?: number;
-  padAssignments?: (number | null)[];
-  onPadAssignmentsChange?: (assignments: (number | null)[]) => void;
+  pads: SamplerPad[];
+  clips: Clip[];
+  onPadTrigger: (padId: number) => void;
+  onPadAssignClip: (padId: number, clipId: string | null) => void;
+  mode: "sampler" | "sequencer";
+  onModeChange: (mode: "sampler" | "sequencer") => void;
 }
 
 export default function SamplerPads({
-  audioBuffer,
-  clips = [],
-  selectedClipId,
-  onClipSelect,
-  isPlaying: externalIsPlaying,
-  onPlayStateChange,
-  samplerMode = "sampler",
-  setSamplerMode,
-  isPadsPlaying = false,
-  onSequencerPlayPause,
-  onSequencerReset,
-  currentSequencerStep = 0,
-  padAssignments: externalPadAssignments = Array(16).fill(null),
-  onPadAssignmentsChange,
+  pads,
+  clips,
+  onPadTrigger,
+  onPadAssignClip,
+  mode,
+  onModeChange,
 }: SamplerPadsProps) {
-  const [selectingForPad, setSelectingForPad] = useState<number | null>(null);
-  const [clickedPadIndex, setClickedPadIndex] = useState<number | null>(null);
-  const [hoveredPad, setHoveredPad] = useState<number | null>(null);
-
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const longPressTriggeredRef = useRef(false);
-
-  // Use external pad assignments from parent
-  const padAssignments = externalPadAssignments;
-
-  // CHANGED: Auto-assign clips to pads when clips change
+  // Keyboard shortcuts for pad triggering (only in sampler mode)
   useEffect(() => {
-    if (!onPadAssignmentsChange) return;
-
-    const newAssignments = [...padAssignments];
-    let hasChanges = false;
-
-    clips.forEach((_, index) => {
-      if (index < 16 && newAssignments[index] === null) {
-        newAssignments[index] = index;
-        hasChanges = true;
-      }
-    });
-
-    if (hasChanges) {
-      onPadAssignmentsChange(newAssignments);
-    }
-  }, [clips.length, onPadAssignmentsChange]);
-
-  // Keyboard controls for sampler mode (realtime pad triggering)
-  useEffect(() => {
-    if (samplerMode !== "sampler") {
-      return;
-    }
-    if (!clips) {
-      if (onClipSelect) {
-        onClipSelect(null);
-      }
-    }
-    setClickedPadIndex(null);
+    if (mode !== "sampler") return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toUpperCase();
-      const padIndex = PAD_KEYS.indexOf(key);
+      // Prevent triggering if user is typing in an input
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
 
-      if (padIndex !== -1) {
-        const clipIndex = padAssignments[padIndex];
-        if (clipIndex !== null && clipIndex < clips.length) {
-          setClickedPadIndex(padIndex);
-          handlePadPlay(padIndex);
-        }
+      // Find pad with matching key binding
+      const key = e.key.toUpperCase();
+      const pad = pads.find((p) => p.keyBinding === key);
+
+      if (pad && !e.repeat) {
+        onPadTrigger(pad.id);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [samplerMode, clips, padAssignments]);
+  }, [pads, onPadTrigger, mode]);
 
-  const handlePadPlay = (padIndex: number) => {
-    if (!onClipSelect) return;
-
-    const clipIndex = padAssignments[padIndex];
-    if (clipIndex !== null && clipIndex < clips.length) {
-      const clip = clips[clipIndex];
-
-      // If the same clip is already selected and playing, stop it
-      if (selectedClipId === clip.id && externalIsPlaying) {
-        onClipSelect(null);
-        // onPlayStateChange(false);
-      } else {
-        // Select the clip and play
-        onClipSelect(clip.id);
-        setTimeout(() => {
-          // onPlayStateChange(true);
-        }, 100);
-      }
+  const handlePadClick = (padId: number) => {
+    if (mode === "sampler") {
+      onPadTrigger(padId);
     }
   };
 
-  const handlePadClick = (padIndex: number, event: React.MouseEvent) => {
-    if (event.shiftKey) {
-      setSelectingForPad(padIndex);
-      return;
-    }
-
-    if (samplerMode === "sampler") {
-      handlePadPlay(padIndex);
-    }
+  const handleAssignClip = (padId: number, clipId: string | null) => {
+    onPadAssignClip(padId, clipId);
   };
 
-  const handleTouchStart = (padIndex: number) => {
-    longPressTriggeredRef.current = false;
-    longPressTimerRef.current = setTimeout(() => {
-      longPressTriggeredRef.current = true;
-      setSelectingForPad(padIndex);
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
-      }
-    }, 500);
-  };
-
-  const handleTouchEnd = (padIndex: number, event: React.TouchEvent) => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+  const getPadDisplay = (pad: SamplerPad) => {
+    const assignedClip = clips.find((c) => c.id === pad.clipId);
+    if (assignedClip) {
+      return {
+        label: assignedClip.name || `Clip ${clips.indexOf(assignedClip) + 1}`,
+        color: assignedClip.color,
+      };
     }
-
-    if (longPressTriggeredRef.current) {
-      event.preventDefault();
-      return;
-    }
-
-    if (samplerMode === "sampler") {
-      handlePadPlay(padIndex);
-    }
-  };
-
-  const handleTouchCancel = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    longPressTriggeredRef.current = false;
-  };
-
-  const assignClipToPad = (padIndex: number, clipIndex: number | null) => {
-    if (onPadAssignmentsChange) {
-      const newAssignments = [...padAssignments];
-      newAssignments[padIndex] = clipIndex;
-      onPadAssignmentsChange(newAssignments);
-    }
-    setSelectingForPad(null);
+    return null;
   };
 
   return (
-    <div className="border-2 border-foreground">
-      {/* Header */}
-      <div className="border-b-2 border-foreground p-3 bg-background h-[52px]">
-        <div className="flex items-center justify-between gap-4 h-full">
-          <div className="flex items-center gap-1 border-2 border-foreground rounded-md overflow-hidden">
-            <button
-              onClick={() => {
-                if (setSamplerMode) setSamplerMode("sampler");
-                if (onSequencerReset) onSequencerReset();
-              }}
-              className={`
-                px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors
-                ${
-                  samplerMode === "sampler"
-                    ? "bg-foreground text-background"
-                    : "bg-background text-foreground hover:bg-muted"
-                }
-              `}
-            >
-              Sampler
-            </button>
-            <button
-              onClick={() => {
-                if (setSamplerMode) {
-                  setSamplerMode("sequencer");
-                  if (onClipSelect) {
-                    onClipSelect(null);
-                  }
-                }
-              }}
-              className={`
-                px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors
-                ${
-                  samplerMode === "sequencer"
-                    ? "bg-foreground text-background"
-                    : "bg-background text-foreground hover:bg-muted"
-                }
-              `}
-            >
-              Sequencer
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-mono text-sm uppercase tracking-wider">Pads</h3>
 
-      {/* Pads Grid */}
-      <div className="p-2">
-        <div className="grid grid-cols-8 gap-2 md:gap-3">
-          {Array.from({ length: 16 }).map((_, index) => {
-            const padNumber = index + 1;
-            const assignedClipIndex = padAssignments[index];
-            const hasAssignment = assignedClipIndex !== null;
-            const assignedClip = hasAssignment
-              ? clips[assignedClipIndex]
-              : null;
-
-            // Check if this pad's clip is currently selected and playing
-            const isActiveClip =
-              assignedClip &&
-              clickedPadIndex === index &&
-              selectedClipId === assignedClip.id &&
-              externalIsPlaying;
-
-            // CHANGED: Check if this is the current step in sequencer mode
-            const isCurrentStep =
-              isPadsPlaying &&
-              samplerMode === "sequencer" &&
-              currentSequencerStep === index;
-
-            return (
-              <button
-                key={index}
-                onClick={(e) => handlePadClick(index, e)}
-                onTouchStart={() => handleTouchStart(index)}
-                onTouchEnd={(e) => handleTouchEnd(index, e)}
-                onTouchCancel={handleTouchCancel}
-                onMouseEnter={() => setHoveredPad(index)}
-                onMouseLeave={() => setHoveredPad(null)}
-                className={`
-                  relative rounded-lg border-2 transition-all
-                  font-mono flex flex-col items-center justify-center
-                  h-12 md:h-16 lg:h-20
-                  ${
-                    isActiveClip || isCurrentStep
-                      ? "bg-primary text-primary-foreground border-primary scale-95"
-                      : hasAssignment
-                      ? "bg-muted border-foreground hover:bg-muted/80"
-                      : "bg-background border-muted-foreground/30 hover:border-foreground hover:bg-muted/50"
-                  }
-                  active:scale-90
-                `}
-              >
-                <div className="text-xs font-bold mb-0.5">{padNumber}</div>
-                <div className="hidden lg:flex text-[7px] uppercase tracking-wider px-1 py-0.5 rounded border border-current/20 bg-current/5">
-                  {PAD_KEYS[index]}
-                </div>
-
-                {hasAssignment && assignedClip && (
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectingForPad(index);
-                    }}
-                    className="absolute top-1 right-1 text-[7px] font-bold bg-foreground text-background rounded px-1 hover:bg-foreground/80 transition-colors cursor-pointer select-none"
-                  >
-                    C{assignedClipIndex + 1}
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Clip Assignment Modal */}
-      {selectingForPad !== null && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setSelectingForPad(null)}
-        >
-          <div
-            className="bg-background border-2 border-foreground rounded-lg p-4 max-w-md w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
+        {/* Mode Switcher */}
+        <div className="flex border-2 border-foreground">
+          <button
+            onClick={() => onModeChange("sampler")}
+            className={`
+              px-3 py-1 font-mono text-xs uppercase tracking-wider transition-colors
+              ${
+                mode === "sampler"
+                  ? "bg-foreground text-background"
+                  : "bg-background text-foreground hover:bg-muted"
+              }
+            `}
           >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-mono text-sm uppercase tracking-wider">
-                Assign Clip to Pad {selectingForPad + 1}
-              </h3>
-              <button
-                onClick={() => setSelectingForPad(null)}
-                className="p-1 hover:bg-muted rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            Sampler
+          </button>
+          <button
+            onClick={() => onModeChange("sequencer")}
+            className={`
+              px-3 py-1 font-mono text-xs uppercase tracking-wider transition-colors border-l-2 border-foreground
+              ${
+                mode === "sequencer"
+                  ? "bg-foreground text-background"
+                  : "bg-background text-foreground hover:bg-muted"
+              }
+            `}
+          >
+            Sequencer
+          </button>
+        </div>
+      </div>
 
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              <button
-                onClick={() => assignClipToPad(selectingForPad, null)}
-                className="w-full p-3 border-2 border-muted-foreground/30 rounded-lg hover:border-foreground hover:bg-muted transition-colors text-left font-mono text-sm"
-              >
-                <div className="text-muted-foreground">Clear Assignment</div>
-              </button>
+      {/* 8x2 Pad Grid */}
+      <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
+        {pads.map((pad) => {
+          const display = getPadDisplay(pad);
+          const isActive = pad.clipId !== null;
+          const isPlaying = pad.isPlaying;
 
-              {clips.length === 0 ? (
-                <div className="p-4 text-center text-muted-foreground font-mono text-sm">
-                  No clips available. Create clips by double-clicking and
-                  dragging on the waveform.
-                </div>
-              ) : (
-                clips.map((clip, clipIndex) => (
-                  <button
-                    key={clipIndex}
-                    onClick={() => assignClipToPad(selectingForPad, clipIndex)}
-                    className="w-full p-3 border-2 border-foreground rounded-lg hover:bg-muted transition-colors text-left"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="font-mono text-sm font-bold">
-                        Clip {clipIndex + 1}
-                      </div>
-                      <div className="text-xs text-muted-foreground font-mono">
-                        {clip.startTime.toFixed(2)}s - {clip.endTime.toFixed(2)}
-                        s
-                      </div>
+          return (
+            <div key={pad.id} className="relative">
+              {/* Main pad button - triggers playback */}
+              <Button
+                variant="outline"
+                className={`
+                  relative h-20 w-full font-mono border-2 transition-all focus-visible:ring-0
+                  ${
+                    isPlaying
+                      ? "border-white shadow-[0_0_0_2px_white] animate-pulse"
+                      : isActive
+                      ? "bg-muted border-foreground hover:bg-muted/80"
+                      : "border-foreground/30 hover:border-foreground/50"
+                  }
+                `}
+                onClick={() => handlePadClick(pad.id)}
+              >
+                <div className="flex flex-col items-center justify-center gap-1 w-full">
+                  {/* Key binding */}
+                  <div className="text-xs font-bold text-muted-foreground">
+                    {pad.keyBinding}
+                  </div>
+
+                  {/* Clip name or empty state */}
+                  {display ? (
+                    <div className="text-xs text-center truncate w-full px-1 text-foreground">
+                      {display.label}
                     </div>
-                    <div className="mt-2 h-1 bg-foreground/20 rounded-full" />
-                  </button>
-                ))
-              )}
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Empty</div>
+                  )}
+
+                  {/* Pad number */}
+                  <div className="text-[10px] text-muted-foreground/50">
+                    #{pad.id + 1}
+                  </div>
+                </div>
+              </Button>
+
+              {/* 3-dot menu button in top-right corner */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute top-1 right-1 h-5 w-5 p-0 hover:bg-muted"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+
+                {/* Dropdown for clip assignment */}
+                <DropdownMenuContent className="font-mono" align="end">
+                  {clips.length > 0 && (
+                    <>
+                      <DropdownMenuItem
+                        className="text-xs text-muted-foreground"
+                        disabled
+                      >
+                        Assign Clip:
+                      </DropdownMenuItem>
+                      {clips.map((clip, index) => (
+                        <DropdownMenuItem
+                          key={clip.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAssignClip(pad.id, clip.id);
+                          }}
+                        >
+                          <span className="text-xs">
+                            {index + 1}. {clip.name || `Clip ${index + 1}`}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
+
+                  {pad.clipId && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAssignClip(pad.id, null);
+                      }}
+                      className="text-red-500"
+                    >
+                      Clear Assignment
+                    </DropdownMenuItem>
+                  )}
+
+                  {clips.length === 0 && !pad.clipId && (
+                    <DropdownMenuItem
+                      disabled
+                      className="text-xs text-muted-foreground"
+                    >
+                      No clips available
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          </div>
+          );
+        })}
+      </div>
+
+      {/* Instructions */}
+      {/* {mode === "sampler" && (
+        <div className="font-mono text-xs text-muted-foreground text-center space-y-1">
+          <p>Click pads or use keyboard shortcuts to play clips</p>
         </div>
       )}
+      {mode === "sequencer" && (
+        <div className="font-mono text-xs text-muted-foreground text-center space-y-1">
+          <p>Press main play button to auto-play assigned pads in sequence</p>
+        </div>
+      )} */}
     </div>
   );
 }

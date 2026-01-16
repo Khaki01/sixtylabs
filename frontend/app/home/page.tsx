@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { Menu, X } from "lucide-react";
-import { isAuthenticated } from "@/lib/auth";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import FeedbackDialog from "@/components/feedback-dialog";
 import { LogoLoop } from "@/components/logo-loop";
 import "@/components/logo-loop.css";
@@ -12,15 +12,15 @@ import "@/components/logo-loop.css";
 export default function DesktopHomePage() {
   const { theme, setTheme } = useTheme();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const { isAuthenticated, checkAuth } = useAuthStore();
 
   useEffect(() => {
     setMounted(true);
-    setIsSignedIn(isAuthenticated());
-  }, []);
+    checkAuth();
+  }, [checkAuth]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -62,7 +62,7 @@ export default function DesktopHomePage() {
   const apps = [
     {
       name: "FOURPAGE",
-      route: "/",
+      route: "/app",
       description: "Audio Manipulator",
     },
   ];
@@ -116,7 +116,7 @@ export default function DesktopHomePage() {
 
             <div className="p-6 space-y-6">
               <div className="space-y-4">
-                {isSignedIn ? (
+                {isAuthenticated ? (
                   <Link href="/profile" className="block">
                     <button
                       onClick={() => setIsMenuOpen(false)}

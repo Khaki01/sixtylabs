@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Scissors, Waves, Download } from "lucide-react";
 import { LandingAudioDemo } from "@/components/landing-audio-demo";
+import { AuthNav } from "@/components/auth-nav";
 
 export default function LandingPage() {
   return (
@@ -14,9 +15,7 @@ export default function LandingPage() {
             <span className="text-muted-foreground text-sm">by Sixty Lens</span>
           </div>
           <nav className="flex items-center gap-6">
-            <Link href="/app" className="hover:opacity-60 transition-opacity">
-              Get Started
-            </Link>
+            <AuthNav />
           </nav>
         </div>
       </header>

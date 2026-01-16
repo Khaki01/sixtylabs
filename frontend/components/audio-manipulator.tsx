@@ -21,7 +21,7 @@ import EffectsPanel from "./effects-panel";
 import SamplerPads from "./sampler-pads";
 import FeedbackDialog from "./feedback-dialog";
 import Link from "next/link";
-import { isAuthenticated } from "@/lib/auth";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,7 +64,7 @@ export default function AudioManipulator() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(false);
+  const { isAuthenticated: isSignedIn, checkAuth } = useAuthStore();
   const [showNoClipsWarning, setShowNoClipsWarning] = useState(false);
 
   // Refs
@@ -92,9 +92,9 @@ export default function AudioManipulator() {
   // Initialize engines on mount
   useEffect(() => {
     setMounted(true);
-    setIsSignedIn(isAuthenticated());
+    checkAuth();
     initializeEngines();
-  }, [initializeEngines]);
+  }, [initializeEngines, checkAuth]);
 
   // Set up engine callbacks after engines are initialized
   useEffect(() => {

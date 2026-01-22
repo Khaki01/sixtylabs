@@ -67,6 +67,13 @@ export default function WaveformVisualizer({
   } | null>(null);
   const [cursorStyle, setCursorStyle] = useState<string>("pointer");
 
+  // Touch gesture state for pinch-to-zoom and panning
+  const [isPinching, setIsPinching] = useState(false);
+  const [initialPinchDistance, setInitialPinchDistance] = useState<number | null>(null);
+  const [initialPinchZoom, setInitialPinchZoom] = useState<number>(1);
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanX, setLastPanX] = useState<number | null>(null);
+
   const drawWaveform = useCallback(() => {
     if (!audioBuffer || !canvasRef.current) return;
 
@@ -570,10 +577,28 @@ export default function WaveformVisualizer({
     setIsDragging(false);
   };
 
+  // Helper to calculate distance between two touch points
+  const getTouchDistance = (touches: React.TouchList): number => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
+
+    // Two-finger pinch-to-zoom
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      setIsPinching(true);
+      setIsPanning(false);
+      setInitialPinchDistance(getTouchDistance(e.touches));
+      setInitialPinchZoom(zoom);
+      return;
+    }
+
     const touch = e.touches[0];
     const x = touch.clientX - rect.left;
 
@@ -597,15 +622,77 @@ export default function WaveformVisualizer({
         setClipStartTime(startTime);
         setCurrentClipEndTime(startTime);
       }
+      setLastTapTime(now);
+      return;
     }
 
     setLastTapTime(now);
+
+    // Single finger pan when zoomed in (not editing clips)
+    if (zoom > 1 && !isCreatingClip && !draggedClipEdge) {
+      setIsPanning(true);
+      setLastPanX(touch.clientX);
+    }
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !audioBuffer) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
+
+    // Handle pinch-to-zoom with two fingers
+    if (e.touches.length === 2 && isPinching && initialPinchDistance !== null) {
+      e.preventDefault();
+      const currentDistance = getTouchDistance(e.touches);
+      const scale = currentDistance / initialPinchDistance;
+      const newZoom = Math.max(1, Math.min(20, initialPinchZoom * scale));
+
+      // Calculate the center point between two fingers for zoom anchor
+      const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const centerPercentage = centerX / rect.width;
+
+      const totalSamples = audioBuffer.getChannelData(0).length;
+      const visibleSamples = totalSamples / zoom;
+      const startSample = Math.floor(scrollOffset * (totalSamples - visibleSamples));
+      const visibleStartTime = (startSample / totalSamples) * duration;
+      const visibleDuration = (visibleSamples / totalSamples) * duration;
+      const timeAtCenter = visibleStartTime + centerPercentage * visibleDuration;
+
+      // Calculate new scroll offset to keep the center point stable
+      if (newZoom > 1) {
+        const newVisibleSamples = totalSamples / newZoom;
+        const newVisibleDuration = (newVisibleSamples / totalSamples) * duration;
+        const newVisibleStartTime = timeAtCenter - centerPercentage * newVisibleDuration;
+        const newStartSample = (newVisibleStartTime / duration) * totalSamples;
+        const maxStartSample = totalSamples - newVisibleSamples;
+        const newScrollOffset = Math.max(0, Math.min(1, newStartSample / maxStartSample));
+        setScrollOffset(newScrollOffset);
+      } else {
+        setScrollOffset(0);
+      }
+
+      setZoom(newZoom);
+      return;
+    }
+
+    // Handle single-finger panning when zoomed in
+    if (e.touches.length === 1 && isPanning && lastPanX !== null && zoom > 1) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - lastPanX;
+
+      // Convert pixel delta to scroll offset delta
+      const scrollDelta = -deltaX / rect.width / zoom;
+
+      setScrollOffset((prev) => {
+        const maxScroll = 1 - 1 / zoom;
+        return Math.max(0, Math.min(maxScroll, prev + scrollDelta));
+      });
+
+      setLastPanX(touch.clientX);
+      return;
+    }
+
     const touch = e.touches[0];
     const x = touch.clientX - rect.left;
 
@@ -652,6 +739,19 @@ export default function WaveformVisualizer({
   };
 
   const handleTouchEnd = () => {
+    // Reset pinch state
+    if (isPinching) {
+      setIsPinching(false);
+      setInitialPinchDistance(null);
+      setInitialPinchZoom(1);
+    }
+
+    // Reset pan state
+    if (isPanning) {
+      setIsPanning(false);
+      setLastPanX(null);
+    }
+
     if (draggedClipEdge) {
       setDraggedClipEdge(null);
       return;
@@ -687,6 +787,21 @@ export default function WaveformVisualizer({
       setCurrentClipEndTime(null);
       setIsDoubleTapDragging(false);
     }
+  };
+
+  const handleTouchCancel = () => {
+    // Reset all touch gesture states
+    setIsPinching(false);
+    setInitialPinchDistance(null);
+    setInitialPinchZoom(1);
+    setIsPanning(false);
+    setLastPanX(null);
+    setDraggedClipEdge(null);
+    setIsCreatingClip(false);
+    setClipStartX(null);
+    setClipStartTime(null);
+    setCurrentClipEndTime(null);
+    setIsDoubleTapDragging(false);
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -822,6 +937,7 @@ export default function WaveformVisualizer({
             "--color-background": "var(--background)",
             "--color-foreground": "var(--foreground)",
             cursor: cursorStyle,
+            touchAction: "none", // Prevent browser handling of touch gestures
           } as React.CSSProperties
         }
         onMouseDown={handleMouseDown}
@@ -831,6 +947,7 @@ export default function WaveformVisualizer({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
       />
     </div>
   );

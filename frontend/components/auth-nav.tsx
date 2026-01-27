@@ -45,20 +45,6 @@ export function AuthNav() {
       <Link href="/app" className="hover:opacity-60 transition-opacity">
         Get Started
       </Link>
-      <Link
-        href="/sign-in"
-        className="hover:opacity-60 transition-opacity border-l pl-4"
-      >
-        Sign In
-      </Link>
-      <Link
-        href="/sign-up"
-        className="hover:opacity-60 transition-opacity border-l pl-4"
-      >
-        {/* <Button variant="outline" size="sm" className="font-mono"> */}
-        Sign Up
-        {/* </Button> */}
-      </Link>
     </div>
   );
 }

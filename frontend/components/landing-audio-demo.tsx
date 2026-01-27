@@ -13,7 +13,7 @@ export function LandingAudioDemo() {
   const [duration, setDuration] = useState(0)
   const [effects, setEffects] = useState({
     granular: false,
-    reverb: false,
+    repeat: false,
     reverse: false,
   })
 
@@ -37,10 +37,11 @@ export function LandingAudioDemo() {
   const nextGrainTimeRef = useRef<number>(0)
   const granularActiveRef = useRef(false)
 
-  // Reverb refs
-  const reverbInputRef = useRef<GainNode | null>(null)
-  const reverbOutputRef = useRef<GainNode | null>(null)
-  const reverbWetGainRef = useRef<GainNode | null>(null)
+  // Repeat refs
+  const repeatInputRef = useRef<GainNode | null>(null)
+  const repeatDelayRef = useRef<DelayNode | null>(null)
+  const repeatFeedbackRef = useRef<GainNode | null>(null)
+  const repeatWetGainRef = useRef<GainNode | null>(null)
 
   // Store effects state in ref for real-time access
   const effectsRef = useRef(effects)
@@ -70,39 +71,23 @@ export function LandingAudioDemo() {
         granularGainRef.current.gain.value = 0
         granularGainRef.current.connect(masterGainRef.current)
 
-        // Create reverb chain
-        reverbInputRef.current = ctx.createGain()
-        reverbOutputRef.current = ctx.createGain()
-        reverbWetGainRef.current = ctx.createGain()
-        reverbWetGainRef.current.gain.value = 0
+        // Create repeat/delay chain
+        repeatInputRef.current = ctx.createGain()
+        repeatDelayRef.current = ctx.createDelay(2.0)
+        repeatFeedbackRef.current = ctx.createGain()
+        repeatWetGainRef.current = ctx.createGain()
 
-        // Build reverb network
-        const delays: DelayNode[] = []
-        const gains: GainNode[] = []
-        const filters: BiquadFilterNode[] = []
-        const baseTimes = [0.0297, 0.0371, 0.0411, 0.0437, 0.0521, 0.0617, 0.0719, 0.0823]
+        // Set delay time for rhythmic repeat (1/8 note feel at ~120 BPM)
+        repeatDelayRef.current.delayTime.value = 0.25
+        repeatFeedbackRef.current.gain.value = 0.5
+        repeatWetGainRef.current.gain.value = 0
 
-        for (let i = 0; i < 8; i++) {
-          delays.push(ctx.createDelay(5.0))
-          gains.push(ctx.createGain())
-          filters.push(ctx.createBiquadFilter())
-          delays[i].delayTime.value = baseTimes[i] * 5.0
-          gains[i].gain.value = 0.55
-          filters[i].type = "lowpass"
-          filters[i].frequency.value = 1800
-          filters[i].Q.value = 0.5
-        }
-
-        delays.forEach((delay, i) => {
-          reverbInputRef.current!.connect(delay)
-          delay.connect(filters[i])
-          filters[i].connect(gains[i])
-          gains[i].connect(reverbOutputRef.current!)
-          gains[i].connect(delays[(i + 1) % delays.length])
-        })
-
-        reverbOutputRef.current.connect(reverbWetGainRef.current)
-        reverbWetGainRef.current.connect(masterGainRef.current)
+        // Build repeat network: input -> delay -> feedback loop -> wet output
+        repeatInputRef.current.connect(repeatDelayRef.current)
+        repeatDelayRef.current.connect(repeatFeedbackRef.current)
+        repeatFeedbackRef.current.connect(repeatDelayRef.current) // feedback loop
+        repeatDelayRef.current.connect(repeatWetGainRef.current)
+        repeatWetGainRef.current.connect(masterGainRef.current)
 
         // Fetch audio
         const response = await fetch(AUDIO_URL)
@@ -143,9 +128,9 @@ export function LandingAudioDemo() {
     }
     granularActiveRef.current = effects.granular
 
-    // Reverb wet gain
-    if (reverbWetGainRef.current) {
-      reverbWetGainRef.current.gain.setTargetAtTime(effects.reverb ? 0.6 : 0, now, 0.05)
+    // Repeat wet gain
+    if (repeatWetGainRef.current) {
+      repeatWetGainRef.current.gain.setTargetAtTime(effects.repeat ? 0.7 : 0, now, 0.05)
     }
 
     if (dryGainRef.current) {
@@ -154,8 +139,8 @@ export function LandingAudioDemo() {
       if (effects.granular) {
         dryValue = 0
       }
-      // When only reverb is on, keep dry at full (reverb adds to it)
-      else if (effects.reverb) {
+      // When only repeat is on, keep dry at full (repeat adds to it)
+      else if (effects.repeat) {
         dryValue = 1
       }
       dryGainRef.current.gain.setTargetAtTime(dryValue, now, 0.05)
@@ -275,8 +260,8 @@ export function LandingAudioDemo() {
     // Dry path - always connected, gain controls if it's heard
     sourceNodeRef.current.connect(dryGainRef.current!)
 
-    // Reverb path
-    sourceNodeRef.current.connect(reverbInputRef.current!)
+    // Repeat path
+    sourceNodeRef.current.connect(repeatInputRef.current!)
 
     // Start granular scheduler
     granularActiveRef.current = effectsRef.current.granular
@@ -322,7 +307,7 @@ export function LandingAudioDemo() {
     }
   }
 
-  const toggleEffect = (effect: "granular" | "reverb" | "reverse") => {
+  const toggleEffect = (effect: "granular" | "repeat" | "reverse") => {
     setEffects((prev) => ({ ...prev, [effect]: !prev[effect] }))
   }
 
@@ -498,22 +483,22 @@ export function LandingAudioDemo() {
           <p className="text-[10px] sm:text-xs opacity-70 hidden sm:block">Grain synthesis</p>
         </button>
 
-        {/* Reverb */}
+        {/* Repeat */}
         <button
-          onClick={() => toggleEffect("reverb")}
+          onClick={() => toggleEffect("repeat")}
           className={`p-3 sm:p-6 text-left transition-colors border-r-2 border-foreground ${
-            effects.reverb ? "bg-foreground text-background" : "bg-background hover:bg-muted/50"
+            effects.repeat ? "bg-foreground text-background" : "bg-background hover:bg-muted/50"
           }`}
         >
           <div className="flex items-center justify-between gap-1 mb-1 sm:mb-2">
-            <span className="font-mono text-[10px] sm:text-sm font-bold truncate">REVERB</span>
+            <span className="font-mono text-[10px] sm:text-sm font-bold truncate">REPEAT</span>
             <div
-              className={`w-2.5 h-2.5 sm:w-3 sm:h-3 border-2 flex-shrink-0 ${effects.reverb ? "border-background bg-background" : "border-foreground"}`}
+              className={`w-2.5 h-2.5 sm:w-3 sm:h-3 border-2 flex-shrink-0 ${effects.repeat ? "border-background bg-background" : "border-foreground"}`}
             >
-              {effects.reverb && <div className="w-full h-full bg-foreground" />}
+              {effects.repeat && <div className="w-full h-full bg-foreground" />}
             </div>
           </div>
-          <p className="text-[10px] sm:text-xs opacity-70 hidden sm:block">Spacious echoes</p>
+          <p className="text-[10px] sm:text-xs opacity-70 hidden sm:block">Beat repeat</p>
         </button>
 
         {/* Reverse */}

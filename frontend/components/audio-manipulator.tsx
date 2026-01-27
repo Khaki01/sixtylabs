@@ -14,12 +14,14 @@ import {
   Repeat,
   ChevronDown,
   Menu,
+  Music,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import WaveformVisualizer from "./waveform-visualizer";
 import EffectsPanel from "./effects-panel";
 import SamplerPads from "./sampler-pads";
 import FeedbackDialog from "./feedback-dialog";
+import SampleLibraryModal from "./sample-library-modal";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import {
@@ -62,6 +64,7 @@ export default function AudioManipulator() {
   // Local UI state (not persisted across navigation)
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSampleLibraryOpen, setIsSampleLibraryOpen] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { isAuthenticated: isSignedIn, checkAuth } = useAuthStore();
@@ -335,6 +338,36 @@ export default function AudioManipulator() {
     } catch (error) {
       console.error("Error loading audio file:", error);
       alert(`Error loading audio file: ${error}`);
+    }
+  };
+
+  const handleLoadSample = async (sampleUrl: string, sampleName: string) => {
+    const audioEngine = getAudioEngine();
+    if (!audioEngine) return;
+
+    if (isPlaying) {
+      audioEngine.pause();
+    }
+
+    try {
+      // Fetch the sample file from URL
+      const response = await fetch(sampleUrl);
+      const arrayBuffer = await response.arrayBuffer();
+
+      // Create a File object from the fetched data
+      const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+      const file = new File([blob], sampleName, { type: "audio/mpeg" });
+
+      setAudioFile(file);
+
+      const buffer = await audioEngine.loadAudioFile(file);
+      setAudioBuffer(buffer);
+      setDuration(buffer.duration);
+      setCurrentTime(0);
+      setIsPlaying(false);
+    } catch (error) {
+      console.error("Error loading sample:", error);
+      alert(`Error loading sample: ${error}`);
     }
   };
 
@@ -702,6 +735,11 @@ export default function AudioManipulator() {
           openValue={isFeedbackOpen}
           onOpenChange={() => setIsFeedbackOpen(false)}
         />
+        <SampleLibraryModal
+          isOpen={isSampleLibraryOpen}
+          onClose={() => setIsSampleLibraryOpen(false)}
+          onSelectSample={handleLoadSample}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -732,6 +770,15 @@ export default function AudioManipulator() {
                     Select Audio File
                   </Button>
                 </label>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="font-mono uppercase tracking-wider bg-transparent w-full"
+                  onClick={() => setIsSampleLibraryOpen(true)}
+                  type="button"
+                >
+                  Load from Library
+                </Button>
               </div>
             </div>
           ) : (
@@ -753,14 +800,26 @@ export default function AudioManipulator() {
                     <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground truncate max-w-[120px] sm:max-w-[200px] md:max-w-md">
                       {audioFile ? audioFile.name : "NO SAMPLE LOADED"}
                     </div>
-                    <Button
-                      onClick={() => fileInputRef.current?.click()}
-                      variant="outline"
-                      size="sm"
-                      className="font-mono uppercase tracking-wider bg-background"
-                    >
-                      <Upload className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        onClick={() => setIsSampleLibraryOpen(true)}
+                        variant="outline"
+                        size="sm"
+                        className="font-mono uppercase tracking-wider bg-background"
+                        title="Sample Library"
+                      >
+                        <Music className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        onClick={() => fileInputRef.current?.click()}
+                        variant="outline"
+                        size="sm"
+                        className="font-mono uppercase tracking-wider bg-background"
+                        title="Upload File"
+                      >
+                        <Upload className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

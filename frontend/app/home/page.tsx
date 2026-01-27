@@ -31,7 +31,7 @@ export default function DesktopHomePage() {
           minute: "2-digit",
           second: "2-digit",
           hour12: false,
-        })
+        }),
       );
     };
 
@@ -68,7 +68,7 @@ export default function DesktopHomePage() {
   ];
 
   return (
-    <main className="min-h-screen bg-background p-8 flex flex-col">
+    <main className="min-h-dvh bg-background p-8 flex flex-col">
       {/* Top Bar */}
       <div className="border-2 border-foreground p-3 mb-8 flex items-center justify-between">
         <div className="flex-1 overflow-hidden">

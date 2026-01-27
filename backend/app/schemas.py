@@ -49,6 +49,21 @@ class AuthStatusResponse(BaseModel):
     authenticated: bool
     user: Optional[UserProfile] = None
 
+
+# Email confirmation schemas
+class SignupResponse(BaseModel):
+    message: str
+    email: str
+
+
+class ResendConfirmationRequest(BaseModel):
+    email: EmailStr
+
+
+class EmailConfirmationResponse(BaseModel):
+    message: str
+    user: Optional[UserProfile] = None
+
 # Project Schemas
 class ProjectBase(BaseModel):
     name: str

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { User, getAuthStatus, login as apiLogin, signUp as apiSignUp, logout as apiLogout, LoginData, SignUpData } from '@/lib/api';
+import { User, getAuthStatus, login as apiLogin, signUp as apiSignUp, logout as apiLogout, LoginData, SignUpData, SignupResponse } from '@/lib/api';
 
 interface AuthState {
   user: User | null;
@@ -10,7 +10,7 @@ interface AuthState {
   // Actions
   checkAuth: () => Promise<void>;
   login: (data: LoginData) => Promise<void>;
-  signUp: (data: SignUpData) => Promise<void>;
+  signUp: (data: SignUpData) => Promise<SignupResponse>;
   logout: () => Promise<void>;
   clearError: () => void;
 }
@@ -59,11 +59,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       set({ isLoading: true, error: null });
       const response = await apiSignUp(data);
-      set({
-        user: response.user,
-        isAuthenticated: true,
-        isLoading: false,
-      });
+      // Don't set authenticated - user needs to confirm email first
+      set({ isLoading: false });
+      return response;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sign up failed';
       set({ error: message, isLoading: false });

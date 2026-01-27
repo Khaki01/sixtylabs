@@ -32,6 +32,16 @@ export interface MessageResponse {
   message: string;
 }
 
+export interface SignupResponse {
+  message: string;
+  email: string;
+}
+
+export interface EmailConfirmationResponse {
+  message: string;
+  user: User | null;
+}
+
 class ApiError extends Error {
   status: number;
 
@@ -51,14 +61,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 // Auth API - all requests include credentials for cookie-based auth
-export async function signUp(data: SignUpData): Promise<AuthResponse> {
+export async function signUp(data: SignUpData): Promise<SignupResponse> {
   const response = await fetch(`${API_URL}/api/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify(data),
   });
-  return handleResponse<AuthResponse>(response);
+  return handleResponse<SignupResponse>(response);
 }
 
 export async function login(data: LoginData): Promise<AuthResponse> {
@@ -104,6 +114,29 @@ export async function getAuthStatus(): Promise<AuthStatusResponse> {
 // Utility to check if error is auth-related
 export function isAuthError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
+}
+
+// Email confirmation
+export async function confirmEmail(token: string): Promise<EmailConfirmationResponse> {
+  const response = await fetch(`${API_URL}/api/auth/confirm-email/${token}`, {
+    credentials: 'include',
+  });
+  return handleResponse<EmailConfirmationResponse>(response);
+}
+
+export async function resendConfirmation(email: string): Promise<MessageResponse> {
+  const response = await fetch(`${API_URL}/api/auth/resend-confirmation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ email }),
+  });
+  return handleResponse<MessageResponse>(response);
+}
+
+// Check if error is email not confirmed error
+export function isEmailNotConfirmedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
 }
 
 // Auto-refresh wrapper for authenticated requests

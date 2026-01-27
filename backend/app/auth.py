@@ -65,6 +65,14 @@ def generate_token_id() -> str:
     return secrets.token_urlsafe(32)
 
 
+def generate_email_token() -> str:
+    """Generate a secure random token for email confirmation."""
+    return secrets.token_urlsafe(48)  # 64 characters
+
+
+EMAIL_TOKEN_EXPIRE_HOURS = 24
+
+
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
 

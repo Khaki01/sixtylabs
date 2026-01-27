@@ -1,8 +1,15 @@
+import logging
 from app import models
 from app.database import engine
 from app.routers import auth, projects
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s - %(name)s - %(message)s"
+)
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)

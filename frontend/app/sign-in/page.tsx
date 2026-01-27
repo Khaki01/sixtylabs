@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { resendConfirmation, isEmailNotConfirmedError } from "@/lib/api";
 import { X } from "lucide-react";
 
 export default function SignInPage() {
@@ -15,6 +16,9 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [emailNotConfirmed, setEmailNotConfirmed] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
 
   useEffect(() => {
     checkAuth();
@@ -29,16 +33,36 @@ export default function SignInPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setEmailNotConfirmed(false);
+    setResendMessage("");
     setLoading(true);
 
     try {
       await login({ email, password });
       router.push("/");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Login failed";
-      setError(message);
+      if (isEmailNotConfirmedError(err)) {
+        setEmailNotConfirmed(true);
+        setError("Please confirm your email before logging in");
+      } else {
+        const message = err instanceof Error ? err.message : "Login failed";
+        setError(message);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    setResendLoading(true);
+    setResendMessage("");
+    try {
+      await resendConfirmation(email);
+      setResendMessage("Confirmation email sent! Check your inbox.");
+    } catch {
+      setResendMessage("Failed to resend. Please try again.");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -86,10 +110,29 @@ export default function SignInPage() {
             </div>
 
             {error && (
-              <div className="border-2 border-red-500 bg-red-500/10 p-3">
+              <div className="border-2 border-red-500 bg-red-500/10 p-3 space-y-3">
                 <p className="font-mono text-xs text-red-500 uppercase tracking-wider">
                   {error}
                 </p>
+                {emailNotConfirmed && (
+                  <div className="space-y-2">
+                    <Button
+                      type="button"
+                      onClick={handleResendConfirmation}
+                      variant="outline"
+                      size="sm"
+                      className="w-full font-mono text-xs uppercase tracking-wider"
+                      disabled={resendLoading || !email}
+                    >
+                      {resendLoading ? "Sending..." : "Resend Confirmation Email"}
+                    </Button>
+                    {resendMessage && (
+                      <p className="font-mono text-xs text-center text-muted-foreground">
+                        {resendMessage}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

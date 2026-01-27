@@ -6,8 +6,9 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { resendConfirmation } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
-import { X } from "lucide-react";
+import { X, Mail, CheckCircle } from "lucide-react";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -19,6 +20,10 @@ export default function SignUpPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
+  const [submittedEmail, setSubmittedEmail] = useState("");
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
 
   useEffect(() => {
     checkAuth();
@@ -55,8 +60,9 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      await signUp({ email, username, password });
-      router.push("/");
+      const response = await signUp({ email, username, password });
+      setSubmittedEmail(response.email);
+      setSignupSuccess(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign up failed";
       setError(message);
@@ -65,10 +71,96 @@ export default function SignUpPage() {
     }
   };
 
+  const handleResendConfirmation = async () => {
+    setResendLoading(true);
+    setResendMessage("");
+    try {
+      await resendConfirmation(submittedEmail);
+      setResendMessage("Confirmation email sent!");
+    } catch {
+      setResendMessage("Failed to resend. Please try again.");
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-background p-4 md:p-8 flex items-center justify-center">
         <div className="font-mono text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  // Success view - show after signup
+  if (signupSuccess) {
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-8 flex items-center justify-center">
+        <div className="w-full max-w-md">
+          <div className="border-2 border-foreground">
+            {/* Header */}
+            <div className="border-b-2 border-foreground p-6 bg-background flex items-center justify-between">
+              <Link
+                href="/"
+                className="font-mono text-xl font-bold tracking-tight hover:opacity-80 transition-opacity"
+              >
+                FOURPAGE{" "}
+                <span className="text-sm font-normal text-muted-foreground">
+                  Sixty Lens
+                </span>
+              </Link>
+            </div>
+
+            {/* Success Content */}
+            <div className="p-6 space-y-6">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="w-16 h-16 border-2 border-foreground flex items-center justify-center">
+                  <Mail className="w-8 h-8" />
+                </div>
+                <h1 className="font-mono text-2xl font-bold tracking-tight uppercase">
+                  Check Your Email
+                </h1>
+                <p className="font-mono text-sm text-muted-foreground">
+                  We sent a confirmation link to
+                </p>
+                <p className="font-mono text-sm font-bold">
+                  {submittedEmail}
+                </p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  Click the link in the email to confirm your account and start using Sixty Lens.
+                </p>
+              </div>
+
+              <div className="border-t-2 border-foreground pt-4 space-y-4">
+                <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider text-center">
+                  Didn&apos;t receive the email?
+                </p>
+                <Button
+                  onClick={handleResendConfirmation}
+                  variant="outline"
+                  className="w-full font-mono uppercase tracking-wider"
+                  disabled={resendLoading}
+                >
+                  {resendLoading ? "Sending..." : "Resend Confirmation Email"}
+                </Button>
+                {resendMessage && (
+                  <p className="font-mono text-xs text-center text-muted-foreground">
+                    {resendMessage}
+                  </p>
+                )}
+                <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider text-center">
+                  Already confirmed?{" "}
+                  <Link
+                    href="/sign-in"
+                    className="text-foreground hover:opacity-80 transition-opacity"
+                  >
+                    Sign In
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

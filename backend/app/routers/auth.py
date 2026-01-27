@@ -1,14 +1,19 @@
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
 from app import models, schemas, auth
 from app.database import get_db
+from app.services.email import send_confirmation_email
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
-@router.post("/signup", response_model=schemas.AuthResponse, status_code=status.HTTP_201_CREATED)
-def signup(user: schemas.UserCreate, response: Response, db: Session = Depends(get_db)):
-    """Register a new user and set authentication cookies."""
+@router.post("/signup", response_model=schemas.SignupResponse, status_code=status.HTTP_201_CREATED)
+def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    """Register a new user and send confirmation email."""
     # Check if email exists
     db_user = auth.get_user_by_email(db, email=user.email)
     if db_user:
@@ -25,24 +30,44 @@ def signup(user: schemas.UserCreate, response: Response, db: Session = Depends(g
             detail="Username already taken"
         )
 
-    # Create new user
+    # Create new user with email_confirmed=False
     hashed_password = auth.get_password_hash(user.password)
     db_user = models.User(
         email=user.email,
         username=user.username,
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        email_confirmed=False
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
 
-    # Create tokens and set cookies
-    access_token, refresh_token = auth.create_tokens_for_user(db_user)
-    auth.set_auth_cookies(response, access_token, refresh_token)
+    # Generate confirmation token
+    token = auth.generate_email_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=auth.EMAIL_TOKEN_EXPIRE_HOURS)
 
-    return schemas.AuthResponse(
-        user=schemas.UserProfile.model_validate(db_user),
-        message="Account created successfully"
+    email_token = models.EmailToken(
+        token=token,
+        user_id=db_user.id,
+        token_type="confirmation",
+        expires_at=expires_at
+    )
+    db.add(email_token)
+    db.commit()
+
+    # Send confirmation email
+    email_sent = send_confirmation_email(
+        to_email=db_user.email,
+        username=db_user.username,
+        token=token
+    )
+
+    if not email_sent:
+        logger.warning(f"Failed to send confirmation email to {db_user.email}")
+
+    return schemas.SignupResponse(
+        message="Please check your email to confirm your account",
+        email=db_user.email
     )
 
 
@@ -55,6 +80,13 @@ def login(user_credentials: schemas.UserLogin, response: Response, db: Session =
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Check if email is confirmed
+    if not user.email_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please confirm your email before logging in"
         )
 
     # Create tokens and set cookies
@@ -149,3 +181,97 @@ async def get_auth_status(
         )
 
     return schemas.AuthStatusResponse(authenticated=False)
+
+
+@router.get("/confirm-email/{token}", response_model=schemas.EmailConfirmationResponse)
+def confirm_email(token: str, db: Session = Depends(get_db)):
+    """Confirm user's email address using the token from the confirmation email."""
+    # Find the token
+    email_token = db.query(models.EmailToken).filter(
+        models.EmailToken.token == token,
+        models.EmailToken.token_type == "confirmation"
+    ).first()
+
+    if not email_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid confirmation token"
+        )
+
+    # Check if token is expired
+    if email_token.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirmation token has expired. Please request a new one."
+        )
+
+    # Check if token was already used
+    if email_token.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This confirmation link has already been used"
+        )
+
+    # Get the user
+    user = db.query(models.User).filter(models.User.id == email_token.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found"
+        )
+
+    # Mark email as confirmed
+    now = datetime.now(timezone.utc)
+    user.email_confirmed = True
+    user.email_confirmed_at = now
+    email_token.used_at = now
+
+    db.commit()
+    db.refresh(user)
+
+    return schemas.EmailConfirmationResponse(
+        message="Email confirmed successfully. You can now sign in.",
+        user=schemas.UserProfile.model_validate(user)
+    )
+
+
+@router.post("/resend-confirmation", response_model=schemas.MessageResponse)
+def resend_confirmation(request: schemas.ResendConfirmationRequest, db: Session = Depends(get_db)):
+    """Resend confirmation email. Always returns success to prevent email enumeration."""
+    user = auth.get_user_by_email(db, email=request.email)
+
+    # Always return success to prevent email enumeration
+    if not user or user.email_confirmed:
+        return schemas.MessageResponse(message="If your email exists in our system and is not yet confirmed, you will receive a confirmation email shortly.")
+
+    # Invalidate existing unused tokens for this user
+    db.query(models.EmailToken).filter(
+        models.EmailToken.user_id == user.id,
+        models.EmailToken.token_type == "confirmation",
+        models.EmailToken.used_at.is_(None)
+    ).update({"used_at": datetime.now(timezone.utc)})
+
+    # Generate new confirmation token
+    token = auth.generate_email_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=auth.EMAIL_TOKEN_EXPIRE_HOURS)
+
+    email_token = models.EmailToken(
+        token=token,
+        user_id=user.id,
+        token_type="confirmation",
+        expires_at=expires_at
+    )
+    db.add(email_token)
+    db.commit()
+
+    # Send confirmation email
+    email_sent = send_confirmation_email(
+        to_email=user.email,
+        username=user.username,
+        token=token
+    )
+
+    if not email_sent:
+        logger.warning(f"Failed to resend confirmation email to {user.email}")
+
+    return schemas.MessageResponse(message="If your email exists in our system and is not yet confirmed, you will receive a confirmation email shortly.")
